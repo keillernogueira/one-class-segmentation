@@ -7,9 +7,12 @@ from utils import initialize_weights
 
 
 class FCNWideResNet50(nn.Module):
-    def __init__(self, num_classes, input_channels=None, pretrained=True, skip=True):
+    def __init__(self, num_classes, input_channels=None, pretrained=True, skip=True, classif=True):
         super(FCNWideResNet50, self).__init__()
         self.skip = skip
+        self.classif = classif
+
+        # load pre-trained model
         wideresnet = models.wide_resnet50_2(pretrained=pretrained, progress=False)
 
         if pretrained:
@@ -31,30 +34,30 @@ class FCNWideResNet50(nn.Module):
         self.layer3 = wideresnet.layer3
         self.layer4 = wideresnet.layer4
 
-        if self.skip:
-            self.classifier1 = nn.Sequential(
-                nn.Conv2d(2048 + 256, 64, kernel_size=3, padding=1),
-                nn.BatchNorm2d(64),
-                nn.ReLU(),
-                nn.Dropout2d(0.5),
-            )
-            self.final = nn.Conv2d(64, num_classes, kernel_size=3, padding=1)
-        else:
-            self.classifier1 = nn.Sequential(
-                nn.Conv2d(2048, 64, kernel_size=3, padding=1),
-                nn.BatchNorm2d(64),
-                nn.ReLU(),
-                nn.Dropout2d(0.5),
-            )
-            self.final = nn.Conv2d(64, num_classes, kernel_size=3, padding=1)
+        if self.classif:
+            if self.skip:
+                self.classifier1 = nn.Sequential(
+                    nn.Conv2d(2048 + 256, 128, kernel_size=3, padding=1),
+                    nn.BatchNorm2d(128),
+                    nn.ReLU(),
+                    nn.Dropout2d(0.5),
+                )
+            else:
+                self.classifier1 = nn.Sequential(
+                    nn.Conv2d(2048, 128, kernel_size=3, padding=1),
+                    nn.BatchNorm2d(128),
+                    nn.ReLU(),
+                    nn.Dropout2d(0.5),
+                )
+            self.final = nn.Conv2d(128, num_classes, kernel_size=3, padding=1)
 
         if not pretrained:
             initialize_weights(self)
-        else:
+        elif self.classif:
             initialize_weights(self.classifier1)
             initialize_weights(self.final)
 
-    def forward(self, x, feat=False):
+    def forward(self, x):
         if self.skip:
             # Forward on FCN with Skip Connections.
             fv_init = self.init(x)
@@ -73,11 +76,10 @@ class FCNWideResNet50(nn.Module):
             fv4 = self.layer4(fv3)
             fv_final = F.interpolate(fv4, x.size()[2:], mode='bilinear', align_corners=False)
 
-        classif1 = self.classifier1(fv_final)
-        output = self.final(classif1)
+        output = None
+        if self.classif:
+            classif1 = self.classifier1(fv_final)
+            output = self.final(classif1)
 
-        if feat:
-            return (output, F.interpolate(fv2, x.size()[2:], mode='bilinear', align_corners=False),
-                    F.interpolate(fv4, x.size()[2:], mode='bilinear', align_corners=False))
-        else:
-            return output
+        return (output, F.interpolate(fv2, x.size()[2:], mode='bilinear', align_corners=False),
+                F.interpolate(fv4, x.size()[2:], mode='bilinear', align_corners=False))

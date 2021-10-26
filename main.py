@@ -10,54 +10,49 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
+from torchviz import make_dot
+
 from dataloader import DataLoader
 from config import *
 from utils import *
 from network import FCNWideResNet50
 
 
-def test(test_loader, net, epoch):
+def test(test_loader, net, epoch, track_mean=None):
     # Setting network for evaluation mode.
     net.eval()
 
-    all_labels = None
-    all_preds = None
-    all_feats = None
+    occur_im = np.zeros([test_loader.dataset.labels[0].shape[0],
+                         test_loader.dataset.labels[0].shape[1], test_loader.dataset.num_classes], dtype=np.uint32)
     with torch.no_grad():
         # Iterating over batches.
         for i, data in enumerate(test_loader):
 
             # Obtaining images, labels and paths for batch.
-            inps, labs = data[0], data[1]
+            inps, labs, maps, curxs, curys = data
 
             # Casting to cuda variables.
             inps_c = Variable(inps).cuda()
             # labs_c = Variable(labs).cuda()
 
             # Forwarding.
-            outs, fv2, fv4 = net(inps_c, feat=True)
+            outs, fv2, fv4 = net(inps_c)
             # Computing probabilities.
-            soft_outs = F.softmax(outs, dim=1)
+            # soft_outs = F.softmax(outs, dim=1)
 
             # Obtaining prior predictions.
-            prds = soft_outs.cpu().data.numpy().argmax(axis=1)
+            # prds = soft_outs.cpu().data.numpy().argmax(axis=1)
 
-            print('fvs', fv2.shape, fv4.shape)
             feat_flat = torch.cat([fv2, fv4], 1)
-            feat_flat = feat_flat.permute(2, 3, 0, 1).contiguous().view(-1, feat_flat.size(1)).cpu().detach().numpy()
+            feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().detach().cpu().numpy()
+            if track_mean is not None:
+                occur_im = predict_map(occur_im, feat_flat, track_mean, maps.detach().cpu().numpy(),
+                                       curxs.detach().cpu().numpy(), curys.detach().cpu().numpy())
 
-            if all_labels is None:
-                all_labels = labs
-                all_preds = prds
-                all_feats = feat_flat
-            else:
-                all_labels = np.concatenate((all_labels, labs))
-                all_preds = np.concatenate((all_preds, prds))
-                all_feats = np.concatenate((all_feats, feat_flat))
-            print(all_labels.shape, all_preds.shape, all_feats.shape)
-
-        acc = accuracy_score(all_labels.flatten(), all_preds.flatten())
-        conf_m = confusion_matrix(all_labels.flatten(), all_preds.flatten())
+    if track_mean is not None:
+        print('shoot')
+        acc = accuracy_score(test_loader.dataset.labels[0].flatten(), occur_im.flatten())
+        conf_m = confusion_matrix(test_loader.dataset.labels[0].flatten(), occur_im.flatten())
 
         _sum = 0.0
         for k in range(len(conf_m)):
@@ -72,24 +67,55 @@ def test(test_loader, net, epoch):
 
         sys.stdout.flush()
 
-    return acc, _sum / float(outs.shape[1]), conf_m, all_feats, all_labels
+    return 0, 0
 
 
-def train(train_loader, net, criterion, optimizer, epoch):
+def test_plot(test_loader, net):
+    # Setting network for evaluation mode.
+    net.eval()
+
+    all_labels = None
+    all_feats = None
+    with torch.no_grad():
+        # Iterating over batches.
+        for i, data in enumerate(test_loader):
+
+            # Obtaining images, labels and paths for batch.
+            inps, labs = data[0], data[1]
+
+            # Casting to cuda variables.
+            inps_c = Variable(inps).cuda()
+            # labs_c = Variable(labs).cuda()
+
+            # Forwarding.
+            _, fv2, fv4 = net(inps_c)
+
+            feat_flat = torch.cat([fv2, fv4], 1)
+            feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().view(-1, feat_flat.size(1)).cpu().detach().numpy()
+
+            if all_labels is None:
+                all_labels = labs
+                all_feats = feat_flat
+            else:
+                all_labels = np.concatenate((all_labels, labs))
+                all_feats = np.concatenate((all_feats, feat_flat))
+
+    return all_feats, all_labels
+
+
+def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch, output):
     # Setting network for training mode.
     net.train()
 
     # Average Meter for batch loss.
     train_loss = list()
 
+    track_mean = None
+
     # Iterating over batches.
     for i, data in enumerate(train_loader):
         # Obtaining buzz sounds and labels
         inps, labels = data[0], data[1]
-        # print(buzz_s.shape, label)
-
-        # Casting tensors to cuda.
-        # inps_c, labels_c = inps.cuda(), labels.cuda()
 
         # Casting to cuda variables.
         inps = Variable(inps).cuda()
@@ -99,15 +125,24 @@ def train(train_loader, net, criterion, optimizer, epoch):
         optimizer.zero_grad()
 
         # Forwarding.
-        outs, fv3, final_fv = net(inps, feat=True)
-        soft_outs = F.softmax(outs, dim=1)
-        # print(outs.shape, fv3.shape, final_fv.shape)
+        outs, fv2, fv4 = net(inps)
 
-        # Obtaining predictions.
-        prds = soft_outs.cpu().data.numpy().argmax(axis=1)
+        if outs is not None:
+            soft_outs = F.softmax(outs, dim=1)
+            # Obtaining predictions.
+            prds = soft_outs.cpu().data.numpy().argmax(axis=1)
 
-        # Computing loss.
-        loss = criterion(outs, labs)
+        # Computing Cross entropy loss.
+        # loss_ce = ce_criterion(outs, labs)
+
+        # computing triplet loss
+        feat_flat = torch.cat([fv2, fv4], 1)
+        feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().view(-1, feat_flat.size(1))
+        a, p, n = get_triples(feat_flat, labs.view(-1), track_mean)
+        loss = tl_criterion(a, p, n)
+        # make_dot(loss).render("attached", format="png")
+
+        # loss = loss_ce + loss_tl
 
         # Computing backpropagation.
         loss.backward()
@@ -118,23 +153,31 @@ def train(train_loader, net, criterion, optimizer, epoch):
 
         # Printing.
         if (i + 1) % DISPLAY_STEP == 0:
-            acc = accuracy_score(labels.flatten(), prds.flatten())
-            conf_m = confusion_matrix(labels.flatten(), prds.flatten())
-
-            _sum = 0.0
-            for k in range(len(conf_m)):
-                _sum += (conf_m[k][k] / float(np.sum(conf_m[k])) if np.sum(conf_m[k]) != 0 else 0)
-
+            acc = calc_accuracy_triples(a, p, n)
+            #     acc = accuracy_score(labels.flatten(), prds.flatten())
+            #     conf_m = confusion_matrix(labels.flatten(), prds.flatten())
+            #
+            #     _sum = 0.0
+            #     for k in range(len(conf_m)):
+            #         _sum += (conf_m[k][k] / float(np.sum(conf_m[k])) if np.sum(conf_m[k]) != 0 else 0)
+            #
             print("Training -- Epoch " + str(epoch) + " -- Iter " + str(i+1) + "/" + str(len(train_loader)) +
                   " -- Time " + str(datetime.datetime.now().time()) +
                   " -- Training Minibatch: Loss= " + "{:.6f}".format(train_loss[-1]) +
-                  " Overall Accuracy= " + "{:.4f}".format(acc) +
-                  " Normalized Accuracy= " + "{:.4f}".format(_sum / float(outs.shape[1])) +
-                  " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
-                  )
+                  " Overall Accuracy= " + "{:.4f}".format(acc))  # +
+        #           " Normalized Accuracy= " + "{:.4f}".format(_sum / float(outs.shape[1])) +
+        #           " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
+        #           )
+        #     project_data(feat_flat[0:5000, :].cpu().detach().numpy(),
+        #                  labs.view(-1)[0:5000].cpu().detach().numpy(),
+        #                  output + 'plot_' + str(epoch) + '_' + str(i) + '.png',
+        #                  pca_n_components=50)
 
     gc.collect()
     sys.stdout.flush()
+
+    # return track_mean  # .detach().cpu().numpy()
+    return torch.mean(feat_flat[labs.view(-1) == 1, :], dim=0).detach().cpu().numpy()
 
 
 if __name__ == '__main__':
@@ -167,12 +210,12 @@ if __name__ == '__main__':
 
     # data loaders
     if args.operation == 'Train':
-        print('---- training ----')
+        print('---- training data ----')
         train_dataset = DataLoader('Train', args.dataset_path, args.training_images, args.crop_size,
                                    args.stride_crop, output_path=args.output_path)
         train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                                        shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
-        print('---- testing ----')
+        print('---- testing data ----')
         test_dataset = DataLoader('Validation', args.dataset_path, args.testing_images,
                                   args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
@@ -180,13 +223,14 @@ if __name__ == '__main__':
 
         # network
         if args.model == 'WideResNet':
-            model = FCNWideResNet50(train_dataset.num_classes, pretrained=True)
+            model = FCNWideResNet50(train_dataset.num_classes, pretrained=True, classif=False)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
         model.cuda()
 
         # loss
-        criterion = nn.CrossEntropyLoss().cuda()
+        ce_criterion = nn.CrossEntropyLoss().cuda()
+        tl_criterion = nn.TripletMarginLoss(margin=1.0, p=2)
 
         optimizer = optim.Adam([
             {'params': list(model.parameters())[:-10]},
@@ -194,47 +238,33 @@ if __name__ == '__main__':
             lr=args.learning_rate/10, weight_decay=args.weight_decay, betas=(0.9, 0.99)
         )
 
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.1)
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
 
         curr_epoch = 1
         best_records = []
+        print('---- training ----')
         for epoch in range(curr_epoch, args.epoch_num + 1):
-            train(train_dataloader, model, criterion, optimizer, epoch)
+            track_mean = train(train_dataloader, model, ce_criterion, tl_criterion,
+                               optimizer, epoch, args.output_path)
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
-                acc, nacc, cm, _, _ = test(test_dataloader, model, epoch)
-
-                save_best_models(model, optimizer, args.output_path, best_records, epoch, acc, nacc, cm)
+                acc, nacc = test(test_dataloader, model, epoch, track_mean)
+            #     save_best_models(model, optimizer, args.output_path, best_records, epoch, acc, nacc, cm)
 
             scheduler.step()
     elif args.operation == 'Test':
-        assert args.model_path is not None, "For inference, flag --model_path should be set."
-
-        # network
-        if args.model == 'fcn_resnet50':
-            model = FCNWideResNet50(2, pretrained=True)
-            # model.classifier = FCNHead(model.classifier[0].in_channels, train_dataset.num_classes)
-        else:
-            raise NotImplementedError("Network " + args.model + " not implemented")
-        model.load_state_dict(torch.load(args.model_path))
-        model.cuda()
+        print('---- testing ----')
+        # assert args.model_path is not None, "For inference, flag --model_path should be set."
 
         test_dataset = DataLoader('Validation', args.dataset_path, args.testing_images,
-                                  args.crop_size, args.stride_crop)
-        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
-                                                      shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
-
-        epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
-        test(test_dataloader, model, epoch)
-    elif args.operation == 'Plot':
-        test_dataset = DataLoader('Plot', args.dataset_path, args.testing_images,
                                   args.crop_size, args.stride_crop, output_path=args.output_path)
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
 
         # network
         if args.model == 'WideResNet':
-            model = FCNWideResNet50(test_dataset.num_classes, pretrained=True)
+            model = FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=False)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 
@@ -244,9 +274,29 @@ if __name__ == '__main__':
             epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
         model.cuda()
 
-        _, _, _, feats, lbs = test(test_dataloader, model, epoch)
+        test(test_dataloader, model, epoch)
+    elif args.operation == 'Plot':
+        print('---- plotting ----')
+        test_dataset = DataLoader('Plot', args.dataset_path, args.testing_images,
+                                  args.crop_size, args.stride_crop, output_path=args.output_path)
+        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                      shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+
+        # network
+        if args.model == 'WideResNet':
+            model = FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=False)
+        else:
+            raise NotImplementedError("Network " + args.model + " not implemented")
+
+        epoch = 0
+        if args.model_path is not None:
+            model.load_state_dict(torch.load(args.model_path))
+            epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
+        model.cuda()
+
+        feats, lbs = test_plot(test_dataloader, model)
         lbs = lbs.reshape(-1)
         print('feats', feats.shape, lbs.shape, np.bincount(lbs[0:100000]))
-        project_data(feats[0:100000, :], lbs[0:100000], pca_n_components=50)
+        project_data(feats[0:100000, :], lbs[0:100000], args.output_path + 'plot.png', pca_n_components=50)
     else:
         raise NotImplementedError("Operation " + args.operation + " not implemented")
