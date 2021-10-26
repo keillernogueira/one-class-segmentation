@@ -41,9 +41,9 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def save_best_models(net, optimizer, output_path, best_records, epoch, acc, acc_cls, cm):
+def save_best_models(net, optimizer, output_path, best_records, epoch, nacc):
     if len(best_records) < 5:
-        best_records.append({'epoch': epoch, 'acc': acc, 'acc_cls': acc_cls, 'cm': cm})
+        best_records.append({'epoch': epoch, 'nacc': nacc})
 
         torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
         torch.save(optimizer.state_dict(), os.path.join(output_path, 'opt_' + str(epoch) + '.pth'))
@@ -51,10 +51,10 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, acc, acc_
         # find min saved acc
         min_index = 0
         for i, r in enumerate(best_records):
-            if best_records[min_index]['acc_cls'] > best_records[i]['acc_cls']:
+            if best_records[min_index]['nacc'] > best_records[i]['nacc']:
                 min_index = i
         # check if currect acc is greater than min saved acc
-        if acc_cls > best_records[min_index]['acc_cls']:
+        if nacc > best_records[min_index]['nacc']:
             # if it is, delete previous files
             min_step = str(best_records[min_index]['epoch'])
 
@@ -62,7 +62,7 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, acc, acc_
             os.remove(os.path.join(output_path, 'opt_' + min_step + '.pth'))
 
             # replace min value with current
-            best_records[min_index] = {'epoch': epoch, 'acc': acc, 'acc_cls': acc_cls, 'cm': cm}
+            best_records[min_index] = {'epoch': epoch, 'nacc': nacc}
 
             # save current model
             torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
@@ -96,7 +96,8 @@ def get_triples(feat, labs, track_mean):
 
     return torch.unsqueeze(track_mean, dim=0).repeat(feat_pos_lbl.size(0), 1), \
            feat_pos_lbl, \
-           torch.index_select(feat, 0, topk_neg)
+           torch.index_select(feat, 0, topk_neg), \
+           track_mean
 
 
 def calc_accuracy_triples(a, p, n):
@@ -107,21 +108,24 @@ def calc_accuracy_triples(a, p, n):
     return torch.count_nonzero(dist) / a.size(0)
 
 
+def predict_patches(feat_flat, track_mean):
+    m, h, w, f = feat_flat.shape
+    feat_flat = feat_flat.view(-1, feat_flat.size(3))
+    dist = torch.cdist(torch.unsqueeze(track_mean, dim=0), feat_flat, p=2).squeeze()
+    pred = (dist < 1).int().view(m, h, w)
+    # print('print', pred.shape, torch.bincount(pred.view(-1)))
+    return pred
+
+
 # https://www.kaggle.com/ashishpatel26/triplet-loss-network-for-humpback-whale-prediction
 def predict_map(occur_im, feat_flat, track_mean, maps, curxs, curys):
-    # print('predict_map', occur_im.shape, feat_flat.shape, track_mean.shape, maps.shape, curxs.shape, curys.shape)
-    # predict_map (14329, 13362, 2) (16, 64, 64, 2560) (2560,) torch.Size([16]) torch.Size([16]) torch.Size([16])
     m, h, w, f = feat_flat.shape
-    feat_flat = feat_flat.reshape((-1, f))
-    dist = (np.linalg.norm(track_mean - feat_flat, axis=1) < 1).astype(np.uint32).reshape((m, h, w))
-    # print('1', feat_flat.shape, dist.shape, track_mean.shape)
-    # 1 (65536, 2560) (65536,) (2560,)
-
+    pred = predict_patches(feat_flat, track_mean)
     for i in range(len(maps)):
         cur_x = curxs[i]
         cur_y = curys[i]
 
-        occur_im[cur_x:cur_x + h, cur_y:cur_y + w, 0] += (1-dist[i, :, :])
-        occur_im[cur_x:cur_x + h, cur_y:cur_y + w, 1] += dist[i, :, :]
+        occur_im[cur_x:cur_x + h, cur_y:cur_y + w, 0] += (1-pred[i, :, :])
+        occur_im[cur_x:cur_x + h, cur_y:cur_y + w, 1] += pred[i, :, :]
     return occur_im
 

@@ -18,16 +18,16 @@ from utils import *
 from network import FCNWideResNet50
 
 
-def test(test_loader, net, epoch, track_mean=None):
+def test_full(test_loader, net, epoch, track_mean=None):
     # Setting network for evaluation mode.
     net.eval()
 
-    occur_im = np.zeros([test_loader.dataset.labels[0].shape[0],
-                         test_loader.dataset.labels[0].shape[1], test_loader.dataset.num_classes], dtype=np.uint32)
+    occur_im = torch.zeros([test_loader.dataset.labels[0].shape[0],
+                            test_loader.dataset.labels[0].shape[1], test_loader.dataset.num_classes],
+                           dtype=torch.int)
     with torch.no_grad():
         # Iterating over batches.
         for i, data in enumerate(test_loader):
-
             # Obtaining images, labels and paths for batch.
             inps, labs, maps, curxs, curys = data
 
@@ -44,15 +44,14 @@ def test(test_loader, net, epoch, track_mean=None):
             # prds = soft_outs.cpu().data.numpy().argmax(axis=1)
 
             feat_flat = torch.cat([fv2, fv4], 1)
-            feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().detach().cpu().numpy()
+            feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().detach().cpu()
             if track_mean is not None:
-                occur_im = predict_map(occur_im, feat_flat, track_mean, maps.detach().cpu().numpy(),
-                                       curxs.detach().cpu().numpy(), curys.detach().cpu().numpy())
+                occur_im = predict_map(occur_im, feat_flat, track_mean, maps, curxs, curys)
 
     if track_mean is not None:
-        print('shoot')
-        acc = accuracy_score(test_loader.dataset.labels[0].flatten(), occur_im.flatten())
-        conf_m = confusion_matrix(test_loader.dataset.labels[0].flatten(), occur_im.flatten())
+        pred = torch.argmax(occur_im, dim=-1).contiguous().detach().cpu().numpy()
+        acc = accuracy_score(test_loader.dataset.labels[0].flatten(), pred.flatten())
+        conf_m = confusion_matrix(test_loader.dataset.labels[0].flatten(), pred.flatten())
 
         _sum = 0.0
         for k in range(len(conf_m)):
@@ -70,7 +69,58 @@ def test(test_loader, net, epoch, track_mean=None):
     return 0, 0
 
 
-def test_plot(test_loader, net):
+def test_per_patch(test_loader, net, epoch, track_mean=None):
+    # Setting network for evaluation mode.
+    net.eval()
+
+    acc = 0.0
+    nacc = 0.0
+    track_cm = np.zeros((2, 2))
+    with torch.no_grad():
+        # Iterating over batches.
+        for i, data in enumerate(test_loader):
+            # Obtaining images, labels and paths for batch.
+            inps, labs = data[0], data[1]
+
+            # Casting to cuda variables.
+            inps_c = Variable(inps).cuda()
+            # labs_c = Variable(labs).cuda()
+
+            # Forwarding.
+            outs, fv2, fv4 = net(inps_c)
+            # Computing probabilities.
+            # soft_outs = F.softmax(outs, dim=1)
+
+            # Obtaining prior predictions.
+            # prds = soft_outs.cpu().data.numpy().argmax(axis=1)
+
+            feat_flat = torch.cat([fv2, fv4], 1)
+            feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().detach().cpu()
+            preds = predict_patches(feat_flat, track_mean).detach().cpu().numpy()
+            labs = labs.detach().cpu().numpy()
+            track_cm += confusion_matrix(labs.flatten(), preds.flatten(), labels=[0, 1])
+
+    if track_mean is not None:
+        acc = (track_cm[0][0] + track_cm[1][1])/np.sum(track_cm)
+
+        _sum = 0.0
+        for k in range(len(track_cm)):
+            _sum += (track_cm[k][k] / float(np.sum(track_cm[k])) if np.sum(track_cm[k]) != 0 else 0)
+        nacc = _sum / float(test_loader.dataset.num_classes)
+
+        print("---- Validation/Test -- Epoch " + str(epoch) +
+              " -- Time " + str(datetime.datetime.now().time()) +
+              " Overall Accuracy= " + "{:.4f}".format(acc) +
+              " Normalized Accuracy= " + "{:.4f}".format(nacc) +
+              " Confusion Matrix= " + np.array_str(track_cm).replace("\n", "")
+              )
+
+        sys.stdout.flush()
+
+    return acc, nacc
+
+
+def plot(test_loader, net):
     # Setting network for evaluation mode.
     net.eval()
 
@@ -111,6 +161,7 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch, outpu
     train_loss = list()
 
     track_mean = None
+    track_mean_return = None
 
     # Iterating over batches.
     for i, data in enumerate(train_loader):
@@ -138,7 +189,7 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch, outpu
         # computing triplet loss
         feat_flat = torch.cat([fv2, fv4], 1)
         feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().view(-1, feat_flat.size(1))
-        a, p, n = get_triples(feat_flat, labs.view(-1), track_mean)
+        a, p, n, aux = get_triples(feat_flat, labs.view(-1), track_mean)
         loss = tl_criterion(a, p, n)
         # make_dot(loss).render("attached", format="png")
 
@@ -150,6 +201,12 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch, outpu
 
         # Updating loss meter.
         train_loss.append(loss.data.item())
+        if track_mean_return is None:
+            track_mean_return = aux.detach().cpu()
+        else:
+            new = torch.mean(torch.stack((track_mean_return, aux.detach().cpu()), dim=0), dim=0)
+            diff = torch.cdist(torch.unsqueeze(track_mean_return, dim=0), torch.unsqueeze(new, dim=0), p=2).item()
+            track_mean_return = new
 
         # Printing.
         if (i + 1) % DISPLAY_STEP == 0:
@@ -164,7 +221,8 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch, outpu
             print("Training -- Epoch " + str(epoch) + " -- Iter " + str(i+1) + "/" + str(len(train_loader)) +
                   " -- Time " + str(datetime.datetime.now().time()) +
                   " -- Training Minibatch: Loss= " + "{:.6f}".format(train_loss[-1]) +
-                  " Overall Accuracy= " + "{:.4f}".format(acc))  # +
+                  " Overall Accuracy= " + "{:.4f}".format(acc) +
+                  " Mean Diff " + "{:.4f}".format(diff))
         #           " Normalized Accuracy= " + "{:.4f}".format(_sum / float(outs.shape[1])) +
         #           " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
         #           )
@@ -176,8 +234,7 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch, outpu
     gc.collect()
     sys.stdout.flush()
 
-    # return track_mean  # .detach().cpu().numpy()
-    return torch.mean(feat_flat[labs.view(-1) == 1, :], dim=0).detach().cpu().numpy()
+    return track_mean_return
 
 
 if __name__ == '__main__':
@@ -249,8 +306,8 @@ if __name__ == '__main__':
                                optimizer, epoch, args.output_path)
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
-                acc, nacc = test(test_dataloader, model, epoch, track_mean)
-            #     save_best_models(model, optimizer, args.output_path, best_records, epoch, acc, nacc, cm)
+                acc, nacc = test_per_patch(test_dataloader, model, epoch, track_mean)
+                save_best_models(model, optimizer, args.output_path, best_records, epoch, nacc)
 
             scheduler.step()
     elif args.operation == 'Test':
@@ -274,7 +331,7 @@ if __name__ == '__main__':
             epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
         model.cuda()
 
-        test(test_dataloader, model, epoch)
+        test_per_patch(test_dataloader, model, epoch)
     elif args.operation == 'Plot':
         print('---- plotting ----')
         test_dataset = DataLoader('Plot', args.dataset_path, args.testing_images,
@@ -294,7 +351,7 @@ if __name__ == '__main__':
             epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
         model.cuda()
 
-        feats, lbs = test_plot(test_dataloader, model)
+        feats, lbs = plot(test_dataloader, model)
         lbs = lbs.reshape(-1)
         print('feats', feats.shape, lbs.shape, np.bincount(lbs[0:100000]))
         project_data(feats[0:100000, :], lbs[0:100000], args.output_path + 'plot.png', pca_n_components=50)

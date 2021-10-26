@@ -17,7 +17,7 @@ class DataLoader(data.Dataset):
     def __init__(self, mode, dataset_input_path, images, crop_size, stride_size,
                  statistics="own", mean=None, std=None, output_path=None):
         super().__init__()
-        assert mode in ['Train', 'Validation', 'Plot']
+        assert mode in ['Train', 'Validation', 'Full_test', 'Plot']
 
         self.mode = mode
         self.dataset_input_path = dataset_input_path
@@ -57,6 +57,8 @@ class DataLoader(data.Dataset):
         if self.mode == 'Train':
             distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes)
         elif self.mode == 'Validation':
+            distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=False)
+        elif self.mode == 'Full_test':
             distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=True)
         else:
             distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=False)
