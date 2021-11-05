@@ -211,7 +211,6 @@ if __name__ == '__main__':
             model = FCNWideResNet50(train_dataset.num_classes, pretrained=True, classif=False)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
-        model.cuda()
 
         # loss
         ce_criterion = nn.CrossEntropyLoss().cuda()
@@ -224,6 +223,15 @@ if __name__ == '__main__':
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
 
         curr_epoch = 1
+        if args.model_path is not None:
+            print('Loading model ' + args.model_path)
+            model.load_state_dict(torch.load(args.model_path))
+            # optimizer.load_state_dict(torch.load(args.model_path.replace("model", "opt")))
+            curr_epoch += int(os.path.basename(args.model_path)[:-4].split('_')[-1])
+            for i in range(curr_epoch):
+                scheduler.step()
+        model.cuda()
+
         best_records = []
         print('---- training ----')
         for epoch in range(curr_epoch, args.epoch_num + 1):

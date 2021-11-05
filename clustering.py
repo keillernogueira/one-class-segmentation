@@ -13,7 +13,7 @@ class KNN:
         self.train_label = train_label
 
     def predict(self, test_data):
-        dist = torch.cdist(test_data, self.train_data, p=2)
+        dist = torch.cdist(test_data, self.train_data, p=self.p)
 
         _, idxs = dist.topk(self.k, largest=False)
         labels = self.train_label[idxs]

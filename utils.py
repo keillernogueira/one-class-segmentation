@@ -67,6 +67,7 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, nacc):
             # save current model
             torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
             torch.save(optimizer.state_dict(), os.path.join(output_path, 'opt_' + str(epoch) + '.pth'))
+    np.save(os.path.join(output_path, 'best_records.npy'), best_records)
 
 
 def project_data(data, labels, save_name, pca_n_components=50):
@@ -96,6 +97,30 @@ def get_triples(feat, labs, track_mean):
 
     return torch.unsqueeze(track_mean, dim=0).repeat(feat_pos_lbl.size(0), 1), \
            feat_pos_lbl, \
+           torch.index_select(feat, 0, topk_neg), \
+           track_mean
+
+
+def get_triples_v2(feat_g, labs, track_mean):
+    feat = feat_g.clone().detach()
+
+    # detach
+    feat_pos_lbl_d = feat[labs == 1, :]
+
+    # attached
+    feat_pos_lbl = feat_g[labs == 1, :]
+    mean_pos_lbl = torch.mean(feat_pos_lbl, dim=0)
+    if track_mean is None:
+        track_mean = mean_pos_lbl
+    else:
+        track_mean = torch.mean(torch.stack((track_mean, mean_pos_lbl), dim=0), dim=0)
+    track_mean_d = track_mean.clone().detach()
+
+    cdist_neg_lbl = torch.cdist(torch.unsqueeze(track_mean_d, dim=0), feat[labs == 0, :], p=2).squeeze()
+    _, topk_neg = torch.topk(cdist_neg_lbl, torch.count_nonzero(labs), largest=False)
+
+    return torch.unsqueeze(track_mean, dim=0).repeat(feat_pos_lbl_d.size(0), 1), \
+           feat_pos_lbl_d, \
            torch.index_select(feat, 0, topk_neg), \
            track_mean
 
