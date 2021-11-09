@@ -126,10 +126,9 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch, alpha
         # computing triplet loss
         feat_flat = torch.cat([fv2, fv4], 1)
         feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().view(-1, feat_flat.size(1))
-        a, p, n, track_mean = get_triples_v2(feat_flat, labs.view(-1), track_mean, alpha)
+        a, p, n, track_mean = get_triples_track(feat_flat, labs.view(-1), track_mean, alpha)
         loss = tl_criterion(a, p, n)
-        make_dot(loss).render("graph", format="png")
-        return
+        # make_dot(loss).render("track_mean", format="png")
 
         # loss = loss_ce + loss_tl
 

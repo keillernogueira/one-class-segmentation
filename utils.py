@@ -125,6 +125,24 @@ def get_triples_v2(feat_g, labs, track_mean):
            track_mean
 
 
+def get_triples_track(feat, labs, track_mean, alpha=0.6):
+    feat_pos_lbl = feat[labs == 1, :]
+    mean_pos_lbl = torch.mean(feat_pos_lbl, dim=0)
+    if track_mean is None:
+        track_mean = mean_pos_lbl
+    else:
+        track_mean = torch.mean(torch.stack((track_mean, mean_pos_lbl), dim=0), dim=0)
+        # track_mean = alpha * track_mean + (1. - alpha) * mean_pos_lbl
+
+    cdist_neg_lbl = torch.cdist(torch.unsqueeze(track_mean, dim=0), feat[labs == 0, :], p=2).squeeze()
+    _, topk_neg = torch.topk(cdist_neg_lbl, torch.count_nonzero(labs), largest=False)
+
+    return torch.unsqueeze(track_mean, dim=0).repeat(feat_pos_lbl.size(0), 1), \
+           feat_pos_lbl, \
+           torch.index_select(feat, 0, topk_neg), \
+           track_mean.clone().detach()
+
+
 def calc_accuracy_triples(a, p, n):
     a_p_dist = torch.cdist(a[0:1, :], p, p=2)
     a_n_dist = torch.cdist(a[0:1, :], n, p=2)
