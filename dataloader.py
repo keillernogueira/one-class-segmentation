@@ -9,7 +9,7 @@ import torch
 from torch.utils import data
 import torchvision.transforms as transforms
 
-from data_utils import create_distrib, create_or_load_statistics, normalize_images
+from data_utils import create_distrib, create_or_load_statistics, normalize_images, create_distrib_knn
 
 
 class DataLoader(data.Dataset):
@@ -17,7 +17,7 @@ class DataLoader(data.Dataset):
     def __init__(self, mode, dataset_input_path, images, crop_size, stride_size,
                  statistics="own", mean=None, std=None, output_path=None):
         super().__init__()
-        assert mode in ['Full_train', 'Train', 'Validation', 'Full_test', 'Plot']
+        assert mode in ['Full_train', 'Train', 'Validation', 'Full_test', 'Plot', 'KNN']
 
         self.mode = mode
         self.dataset_input_path = dataset_input_path
@@ -54,14 +54,12 @@ class DataLoader(data.Dataset):
         return images, masks
 
     def make_dataset(self):
-        if self.mode == 'Train':
+        if self.mode == 'Train' or self.mode == 'Validation':
             distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=False)
-        elif self.mode == 'Full_train':
+        elif self.mode == 'Full_train' or self.mode == 'Full_test':
             distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=True)
-        elif self.mode == 'Validation':
-            distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=False)
-        elif self.mode == 'Full_test':
-            distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=True)
+        elif self.mode == 'KNN':
+            distrib = create_distrib_knn(self.labels, self.crop_size, self.stride_size, self.num_classes)
         else:
             distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=False)
 

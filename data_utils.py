@@ -8,7 +8,7 @@ import numpy as np
 def create_distrib(labels, crop_size, stride_size, num_classes, return_all=False):
     instances = [[[] for i in range(0)] for i in range(num_classes)]
     counter = num_classes * [0]
-    binc = np.zeros((num_classes, num_classes, num_classes))
+    binc = np.zeros((num_classes, num_classes))  # cumulative bincount for each class
 
     for k in range(0, len(labels)):
         w, h = labels[k].shape
@@ -51,6 +51,61 @@ def create_distrib(labels, crop_size, stride_size, num_classes, return_all=False
         return np.asarray(instances[0] + instances[1])
     else:
         return np.asarray(instances[1])
+
+
+def create_distrib_knn(labels, crop_size, stride_size, num_classes):
+    instances = []
+    counter = 0
+    binc = np.zeros(num_classes)
+
+    for k in range(0, len(labels)):
+        w, h = labels[k].shape
+        for i in range(0, w, stride_size):
+            for j in range(0, h, stride_size):
+                cur_map = k
+                cur_x = i
+                cur_y = j
+                patch_class = labels[cur_map][cur_x:cur_x + crop_size, cur_y:cur_y + crop_size]
+
+                if len(patch_class) != crop_size and len(patch_class[0]) != crop_size:
+                    cur_x = cur_x - (crop_size - len(patch_class))
+                    cur_y = cur_y - (crop_size - len(patch_class[0]))
+                    patch_class = labels[cur_map][cur_x:cur_x + crop_size, cur_y:cur_y + crop_size]
+                elif len(patch_class) != crop_size:
+                    cur_x = cur_x - (crop_size - len(patch_class))
+                    patch_class = labels[cur_map][cur_x:cur_x + crop_size, cur_y:cur_y + crop_size]
+                elif len(patch_class[0]) != crop_size:
+                    cur_y = cur_y - (crop_size - len(patch_class[0]))
+                    patch_class = labels[cur_map][cur_x:cur_x + crop_size, cur_y:cur_y + crop_size]
+
+                assert patch_class.shape == (crop_size, crop_size), \
+                    "Error create_distrib: Current patch size is " + str(len(patch_class)) + "x" + str(len(patch_class[0]))
+
+                count = np.bincount(patch_class.astype(int).flatten(), minlength=2)
+                proportion = count[1]/float(np.sum(count))
+                if 0.45 <= proportion <= 0.55:
+                    if counter < 16:
+                        counter += 1
+                        binc += count
+                        instances.append((cur_map, cur_x, cur_y, count, proportion))
+                    else:
+                        # find patch with largest value
+                        index_patch_max_pos = -1
+                        patch_max_value = -999999999
+                        for x in range(len(instances)):
+                            if abs(0.5 - instances[x][4]) > patch_max_value:
+                                patch_max_value = abs(0.5 - instances[x][4])
+                                index_patch_max_pos = x
+                        # exchange if it is the case
+                        if abs(0.5 - instances[index_patch_max_pos][4]) > abs(0.5 - proportion):
+                            binc -= instances[index_patch_max_pos][3]
+                            del instances[index_patch_max_pos]
+                            instances.append((cur_map, cur_x, cur_y, count, proportion))
+                            binc += count
+
+    print('Number samples ' + str(counter) + ' - ' + np.array_str(binc).replace("\n", ""))
+
+    return np.asarray(instances)
 
 
 def normalize_images(data, _mean, _std):

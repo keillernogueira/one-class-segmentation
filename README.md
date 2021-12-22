@@ -14,3 +14,8 @@
 - [ ] usar somente as amostras positivas mais longe do mean
 - [ ] usar a tecnica que selecionar amostras mendeley 
 - [ ] testar prototype networks
+- [ ] testar o triplet loss sem o mean
+
+## Material interessante:
+
+- https://omoindrot.github.io/triplet-loss

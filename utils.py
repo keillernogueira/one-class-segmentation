@@ -41,9 +41,9 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def save_best_models(net, optimizer, output_path, best_records, epoch, nacc):
+def save_best_models(net, optimizer, output_path, best_records, epoch, nacc, track_mean=None):
     if len(best_records) < 5:
-        best_records.append({'epoch': epoch, 'nacc': nacc})
+        best_records.append({'epoch': epoch, 'nacc': nacc, 'track_mean': track_mean})
 
         torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
         torch.save(optimizer.state_dict(), os.path.join(output_path, 'opt_' + str(epoch) + '.pth'))
@@ -62,7 +62,7 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, nacc):
             os.remove(os.path.join(output_path, 'opt_' + min_step + '.pth'))
 
             # replace min value with current
-            best_records[min_index] = {'epoch': epoch, 'nacc': nacc}
+            best_records[min_index] = {'epoch': epoch, 'nacc': nacc, 'track_mean': track_mean}
 
             # save current model
             torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
@@ -97,11 +97,11 @@ def get_triples(feat, labs, track_mean):
 
     return torch.unsqueeze(track_mean, dim=0).repeat(feat_pos_lbl.size(0), 1), \
            feat_pos_lbl, \
-           torch.index_select(feat, 0, topk_neg), \
+           torch.index_select(feat[labs == 0, :], 0, topk_neg), \
            track_mean
 
 
-def get_triples_v2(feat_g, labs, track_mean):
+def get_triples_detach(feat_g, labs, track_mean):
     feat = feat_g.clone().detach()
 
     # detach
@@ -121,7 +121,7 @@ def get_triples_v2(feat_g, labs, track_mean):
 
     return torch.unsqueeze(track_mean, dim=0).repeat(feat_pos_lbl_d.size(0), 1), \
            feat_pos_lbl_d, \
-           torch.index_select(feat, 0, topk_neg), \
+           torch.index_select(feat[labs == 0, :], 0, topk_neg), \
            track_mean
 
 
@@ -139,23 +139,51 @@ def get_triples_track(feat, labs, track_mean, alpha=0.6):
 
     return torch.unsqueeze(track_mean, dim=0).repeat(feat_pos_lbl.size(0), 1), \
            feat_pos_lbl, \
-           torch.index_select(feat, 0, topk_neg), \
+           torch.index_select(feat[labs == 0, :], 0, topk_neg), \
            track_mean.clone().detach()
 
 
-def calc_accuracy_triples(a, p, n):
+def get_hard_triples(feat, labs, track_mean, margin=1):
+    # calculating centroid value
+    feat_pos_lbl = feat[labs == 1, :]
+    neg_pos_lbl = feat[labs == 0, :]
+
+    mean_pos_lbl = torch.mean(feat_pos_lbl, dim=0)
+    if track_mean is None:
+        track_mean = mean_pos_lbl
+    else:
+        track_mean = torch.mean(torch.stack((track_mean, mean_pos_lbl), dim=0), dim=0)
+
+    # dist centroid to POS samples
+    cdist_pos, cdist_pos_idx = torch.cdist(torch.unsqueeze(track_mean, dim=0),
+                                           feat_pos_lbl, p=2).squeeze().sort(0, descending=True)
+
+    # dist centroid to NEG samples
+    cdist_neg, cdist_neg_idx = torch.cdist(torch.unsqueeze(track_mean, dim=0),
+                                           neg_pos_lbl, p=2).squeeze().sort(0)
+
+    hard = cdist_pos >= (cdist_neg[0:cdist_pos.shape[0]] - margin)
+    print('1', cdist_neg.shape, hard.shape)
+
+    return torch.unsqueeze(track_mean, dim=0).repeat(torch.count_nonzero(hard), 1), \
+           feat_pos_lbl[cdist_pos_idx[hard]], \
+           neg_pos_lbl[cdist_neg_idx[0:cdist_pos.shape[0]][hard]], \
+           track_mean
+
+
+def calc_accuracy_triples(a, p, n, margin=1):
     a_p_dist = torch.cdist(a[0:1, :], p, p=2)
     a_n_dist = torch.cdist(a[0:1, :], n, p=2)
-    dist = a_n_dist - 1 > a_p_dist
+    dist = a_n_dist - margin > a_p_dist
 
     return torch.count_nonzero(dist) / a.size(0)
 
 
 def predict_patches(feat_flat, track_mean):
-    m, h, w, f = feat_flat.shape
-    feat_flat = feat_flat.view(-1, feat_flat.size(3))
+    # m, h, w, f = feat_flat.shape
+    # feat_flat = feat_flat.view(-1, feat_flat.size(3))
     dist = torch.cdist(torch.unsqueeze(track_mean, dim=0), feat_flat, p=2).squeeze()
-    pred = (dist < 1).int().view(m, h, w)
+    pred = (dist < 1).int()  # .view(m, h, w)
     # print('print', pred.shape, torch.bincount(pred.view(-1)))
     return pred
 

@@ -19,12 +19,11 @@ from network import FCNWideResNet50
 from clustering import KNN
 
 
-def test_per_patch(train_loader, test_loader, net, epoch, k=10):
+# knn
+def test_per_patch(train_loader, test_loader, net, epoch, k):
     # Setting network for evaluation mode.
     net.eval()
 
-    acc = 0.0
-    nacc = 0.0
     track_cm = np.zeros((2, 2))
 
     selected_train_samples_for_knn = None
@@ -72,7 +71,7 @@ def test_per_patch(train_loader, test_loader, net, epoch, k=10):
             preds = knn_model.predict(feat_flat)
             track_cm += confusion_matrix(labs.flatten(), preds.flatten(), labels=[0, 1])
 
-    acc = (track_cm[0][0] + track_cm[1][1])/np.sum(track_cm)
+    acc = np.diag(track_cm).sum()/np.sum(track_cm)
 
     _sum = 0.0
     for k in range(len(track_cm)):
@@ -91,7 +90,7 @@ def test_per_patch(train_loader, test_loader, net, epoch, k=10):
     return acc, nacc
 
 
-def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch, alpha=0.6):
+def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch):
     # Setting network for training mode.
     net.train()
 
@@ -126,9 +125,9 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch, alpha
         # computing triplet loss
         feat_flat = torch.cat([fv2, fv4], 1)
         feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().view(-1, feat_flat.size(1))
-        a, p, n, track_mean = get_triples_track(feat_flat, labs.view(-1), track_mean, alpha)
+        a, p, n, _ = get_triples(feat_flat, labs.view(-1), track_mean)
         loss = tl_criterion(a, p, n)
-        # make_dot(loss).render("track_mean", format="png")
+        # make_dot(loss).render("attached", format="png")
 
         # loss = loss_ce + loss_tl
 
@@ -192,9 +191,8 @@ if __name__ == '__main__':
     parser.add_argument('--epoch_num', type=int, default=50, help='Number of epochs')
 
     # specific parameters
-    parser.add_argument('--k', type=float, default=10, help='k for the kNN')
-    parser.add_argument('--alpha', type=float, default=0.6, help='Alpha value for the EMA')
-    parser.add_argument('--margin', type=float, default=1.0, help='Triplet loss margin')
+    parser.add_argument('--k', type=int, default=3, help='k for the kNN')
+
     args = parser.parse_args()
     print(args)
 
@@ -219,7 +217,7 @@ if __name__ == '__main__':
 
         # loss
         ce_criterion = nn.CrossEntropyLoss().cuda()
-        tl_criterion = nn.TripletMarginLoss(margin=args.margin, p=2)
+        tl_criterion = nn.TripletMarginLoss(margin=1.0, p=2)
 
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
                                betas=(0.9, 0.99))
@@ -240,7 +238,7 @@ if __name__ == '__main__':
         best_records = []
         print('---- training ----')
         for epoch in range(curr_epoch, args.epoch_num + 1):
-            train(train_dataloader, model, ce_criterion, tl_criterion, optimizer, epoch, args.alpha)
+            train(train_dataloader, model, ce_criterion, tl_criterion, optimizer, epoch)
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
                 acc, nacc = test_per_patch(train_dataloader, test_dataloader, model, epoch, args.k)
@@ -249,7 +247,7 @@ if __name__ == '__main__':
             scheduler.step()
     elif args.operation == 'Test':
         print('---- testing ----')
-        # assert args.model_path is not None, "For inference, flag --model_path should be set."
+        assert args.model_path is not None, "For inference, flag --model_path should be set."
 
         print('---- training data ----')
         train_dataset = DataLoader('Train', args.dataset_path, args.training_images, args.crop_size,
@@ -274,6 +272,7 @@ if __name__ == '__main__':
             epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
         model.cuda()
 
-        test_per_patch(train_dataloader, test_dataloader, model, epoch)
+        print(" -- Starting Time " + str(datetime.datetime.now().time()))
+        test_per_patch(train_dataloader, test_dataloader, model, epoch, args.k)
     else:
         raise NotImplementedError("Operation " + args.operation + " not implemented")

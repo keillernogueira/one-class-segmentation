@@ -16,82 +16,10 @@ from dataloader import DataLoader
 from config import *
 from utils import *
 from network import FCNWideResNet50
-from clustering import KNN
+from test import test_per_patch
 
 
-def test_per_patch(train_loader, test_loader, net, epoch):
-    # Setting network for evaluation mode.
-    net.eval()
-
-    acc = 0.0
-    nacc = 0.0
-    track_cm = np.zeros((2, 2))
-
-    selected_train_samples_for_knn = None
-    selected_train_labs_for_knn = None
-
-    with torch.no_grad():
-        # extracting features for KNN
-        for i, data in enumerate(train_loader):
-            # Obtaining images, labels and paths for batch.
-            inps, labs = data[0], data[1]
-
-            # Casting to cuda variables.
-            inps_c = Variable(inps).cuda()
-
-            # Forwarding.
-            _, fv2, fv4 = net(inps_c)
-
-            feat_flat = torch.cat([fv2, fv4], 1)
-            feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().view(-1, feat_flat.size(1)).detach().cpu()
-            labs = labs.view(-1).cpu()
-            selected_train_samples_for_knn = feat_flat
-            selected_train_labs_for_knn = labs
-            break
-
-        # pca_model = decomposition.PCA(n_components=50, random_state=12345)
-        # pca_data = pca_model.fit_transform(selected_train_samples_for_knn)
-        knn_model = KNN(selected_train_samples_for_knn, selected_train_labs_for_knn)
-
-        # Iterating over batches.
-        for i, data in enumerate(test_loader):
-            # Obtaining images, labels and paths for batch.
-            inps, labs = data[0], data[1]
-
-            # Casting to cuda variables.
-            inps_c = Variable(inps).cuda()
-            # labs_c = Variable(labs).cuda()
-
-            # Forwarding.
-            outs, fv2, fv4 = net(inps_c)
-
-            feat_flat = torch.cat([fv2, fv4], 1)
-            feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().view(-1, feat_flat.size(1)).detach().cpu()
-
-            # pca_data = pca_model.transform(feat_flat)
-            preds = knn_model.predict(feat_flat)
-            track_cm += confusion_matrix(labs.flatten(), preds.flatten(), labels=[0, 1])
-
-    acc = (track_cm[0][0] + track_cm[1][1])/np.sum(track_cm)
-
-    _sum = 0.0
-    for k in range(len(track_cm)):
-        _sum += (track_cm[k][k] / float(np.sum(track_cm[k])) if np.sum(track_cm[k]) != 0 else 0)
-    nacc = _sum / float(test_loader.dataset.num_classes)
-
-    print("---- Validation/Test -- Epoch " + str(epoch) +
-          " -- Time " + str(datetime.datetime.now().time()) +
-          " Overall Accuracy= " + "{:.4f}".format(acc) +
-          " Normalized Accuracy= " + "{:.4f}".format(nacc) +
-          " Confusion Matrix= " + np.array_str(track_cm).replace("\n", "")
-          )
-
-    sys.stdout.flush()
-
-    return acc, nacc
-
-
-def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch):
+def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch, alpha=0.6):
     # Setting network for training mode.
     net.train()
 
@@ -126,9 +54,9 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch):
         # computing triplet loss
         feat_flat = torch.cat([fv2, fv4], 1)
         feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().view(-1, feat_flat.size(1))
-        a, p, n, _ = get_triples(feat_flat, labs.view(-1), track_mean)
+        a, p, n, _ = get_triples_detach(feat_flat, labs.view(-1), track_mean)
         loss = tl_criterion(a, p, n)
-        # make_dot(loss).render("attached", format="png")
+        # make_dot(loss).render("graph_v2", format="png")
 
         # loss = loss_ce + loss_tl
 
@@ -190,6 +118,11 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', type=float, default=0.005, help='Weight decay')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--epoch_num', type=int, default=50, help='Number of epochs')
+
+    # specific parameters
+    parser.add_argument('--k', type=int, default=10, help='k for the kNN')
+    parser.add_argument('--alpha', type=float, default=0.6, help='Alpha value for the EMA')
+    parser.add_argument('--margin', type=float, default=1.0, help='Triplet loss margin')
     args = parser.parse_args()
     print(args)
 
@@ -200,6 +133,11 @@ if __name__ == '__main__':
                                    args.stride_crop, output_path=args.output_path)
         train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                                        shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+        print('---- knn data ----')
+        knn_dataset = DataLoader('KNN', args.dataset_path, args.training_images, args.crop_size,
+                                 args.stride_crop, output_path=args.output_path)
+        knn_dataloader = torch.utils.data.DataLoader(knn_dataset, batch_size=args.batch_size,
+                                                     shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
         print('---- testing data ----')
         test_dataset = DataLoader('Validation', args.dataset_path, args.testing_images,
                                   args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
@@ -214,7 +152,7 @@ if __name__ == '__main__':
 
         # loss
         ce_criterion = nn.CrossEntropyLoss().cuda()
-        tl_criterion = nn.TripletMarginLoss(margin=1.0, p=2)
+        tl_criterion = nn.TripletMarginLoss(margin=args.margin, p=2)
 
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
                                betas=(0.9, 0.99))
@@ -235,10 +173,10 @@ if __name__ == '__main__':
         best_records = []
         print('---- training ----')
         for epoch in range(curr_epoch, args.epoch_num + 1):
-            train(train_dataloader, model, ce_criterion, tl_criterion, optimizer, epoch)
+            train(train_dataloader, model, ce_criterion, tl_criterion, optimizer, epoch, args.alpha)
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
-                acc, nacc = test_per_patch(train_dataloader, test_dataloader, model, epoch)
+                acc, nacc = test_per_patch(test_dataloader, model, epoch, knn_dataloader=knn_dataset, k=args.k)
                 save_best_models(model, optimizer, args.output_path, best_records, epoch, nacc)
 
             scheduler.step()
@@ -246,14 +184,14 @@ if __name__ == '__main__':
         print('---- testing ----')
         # assert args.model_path is not None, "For inference, flag --model_path should be set."
 
-        print('---- training data ----')
-        train_dataset = DataLoader('Train', args.dataset_path, args.training_images, args.crop_size,
-                                   args.stride_crop, output_path=args.output_path)
-        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                       shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+        print('---- knn data ----')
+        knn_dataset = DataLoader('KNN', args.dataset_path, args.training_images, args.crop_size,
+                                 args.stride_crop, output_path=args.output_path)
+        knn_dataloader = torch.utils.data.DataLoader(knn_dataset, batch_size=args.batch_size,
+                                                     shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
         print('---- testing data ----')
         test_dataset = DataLoader('Validation', args.dataset_path, args.testing_images,
-                                  args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
+                                  args.crop_size, args.stride_crop, output_path=args.output_path)
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=1,
                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
 
@@ -269,6 +207,6 @@ if __name__ == '__main__':
             epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
         model.cuda()
 
-        test_per_patch(train_dataloader, test_dataloader, model, epoch)
+        test_per_patch(test_dataloader, model, epoch, knn_dataloader=knn_dataset, k=args.k)
     else:
         raise NotImplementedError("Operation " + args.operation + " not implemented")
