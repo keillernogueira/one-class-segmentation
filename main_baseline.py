@@ -2,7 +2,8 @@ import gc
 import sys
 import datetime
 import numpy as np
-from sklearn.metrics import accuracy_score, confusion_matrix
+import imageio
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 
 import torch
 from torch import optim
@@ -16,12 +17,74 @@ from utils import *
 from network import FCNWideResNet50
 
 
+def test_full_map(test_loader, net, epoch, output_path):
+    # Setting network for evaluation mode.
+    net.eval()
+
+    prob_im = np.zeros([test_loader.dataset.labels[0].shape[0],
+                        test_loader.dataset.labels[0].shape[1], test_loader.dataset.num_classes], dtype=np.float64)
+    occur_im = np.zeros([test_loader.dataset.labels[0].shape[0],
+                         test_loader.dataset.labels[0].shape[1], test_loader.dataset.num_classes], dtype=int)
+
+    with torch.no_grad():
+        # Iterating over batches.
+        for i, data in enumerate(test_loader):
+            # Obtaining images, labels and paths for batch.
+            inps, labs, cur_maps, cur_xs, cur_ys = data
+
+            # Casting to cuda variables.
+            inps_c = Variable(inps).cuda()
+            # labs_c = Variable(labs).cuda()
+
+            # Forwarding.
+            outs, _, _ = net(inps_c)
+            # Computing probabilities.
+            soft_outs = F.softmax(outs, dim=1)
+
+            for j in range(soft_outs.shape[0]):
+                # cur_map = cur_maps[j]
+                cur_x = cur_xs[j]
+                cur_y = cur_ys[j]
+
+                soft_outs_p = soft_outs.permute(0, 2, 3, 1).cpu().detach().numpy()
+
+                prob_im[cur_x:cur_x + test_loader.dataset.crop_size,
+                        cur_y:cur_y + test_loader.dataset.crop_size, :] += soft_outs_p[j, :, :, :]
+                occur_im[cur_x:cur_x + test_loader.dataset.crop_size,
+                         cur_y:cur_y + test_loader.dataset.crop_size, :] += 1
+
+    occur_im[np.where(occur_im == 0)] = 1
+    prob_im_argmax = np.argmax(prob_im / occur_im.astype(float), axis=-1)
+    print(prob_im_argmax.shape, np.bincount(prob_im_argmax.flatten()),
+          test_loader.dataset.labels[0].shape, np.bincount(test_loader.dataset.labels[0].flatten()))
+
+    # Saving predictions.
+    imageio.imwrite(os.path.join(output_path, 'baseline_prd.png'), prob_im_argmax*255)
+
+    acc = accuracy_score(test_loader.dataset.labels[0].flatten(), prob_im_argmax.flatten())
+    conf_m = confusion_matrix(test_loader.dataset.labels[0].flatten(), prob_im_argmax.flatten())
+
+    _sum = 0.0
+    for k in range(len(conf_m)):
+        _sum += (conf_m[k][k] / float(np.sum(conf_m[k])) if np.sum(conf_m[k]) != 0 else 0)
+
+    print("---- Validation/Test -- Epoch " + str(epoch) +
+          " -- Time " + str(datetime.datetime.now().time()) +
+          " Overall Accuracy= " + "{:.4f}".format(acc) +
+          " Normalized Accuracy= " + "{:.4f}".format(_sum / float(outs.shape[1])) +
+          " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
+          )
+
+    sys.stdout.flush()
+
+    return 0, 0, 0
+
+
 def test(test_loader, net, epoch):
     # Setting network for evaluation mode.
     net.eval()
 
-    all_labels = None
-    all_preds = None
+    track_cm = np.zeros((2, 2))
     with torch.no_grad():
         # Iterating over batches.
         for i, data in enumerate(test_loader):
@@ -40,32 +103,27 @@ def test(test_loader, net, epoch):
 
             # Obtaining prior predictions.
             prds = soft_outs.cpu().data.numpy().argmax(axis=1)
+            track_cm += confusion_matrix(labs.flatten(), prds.flatten(), labels=[0, 1])
 
-            if all_labels is None:
-                all_labels = labs
-                all_preds = prds
-            else:
-                all_labels = np.concatenate((all_labels, labs))
-                all_preds = np.concatenate((all_preds, prds))
-
-        acc = accuracy_score(all_labels.flatten(), all_preds.flatten())
-        conf_m = confusion_matrix(all_labels.flatten(), all_preds.flatten())
+        acc = (track_cm[0][0] + track_cm[1][1]) / np.sum(track_cm)
+        f1_s = f1_with_cm(track_cm)
 
         _sum = 0.0
-        for k in range(len(conf_m)):
-            _sum += (conf_m[k][k] / float(np.sum(conf_m[k])) if np.sum(conf_m[k]) != 0 else 0)
+        for k in range(len(track_cm)):
+            _sum += (track_cm[k][k] / float(np.sum(track_cm[k])) if np.sum(track_cm[k]) != 0 else 0)
         nacc = _sum / float(test_loader.dataset.num_classes)
 
         print("---- Validation/Test -- Epoch " + str(epoch) +
               " -- Time " + str(datetime.datetime.now().time()) +
               " Overall Accuracy= " + "{:.4f}".format(acc) +
               " Normalized Accuracy= " + "{:.4f}".format(nacc) +
-              " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
+              " F1 Score= " + "{:.4f}".format(f1_s) +
+              " Confusion Matrix= " + np.array_str(track_cm).replace("\n", "")
               )
 
         sys.stdout.flush()
 
-    return acc, nacc, conf_m
+    return acc, nacc, track_cm
 
 
 def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch):
@@ -109,6 +167,7 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch):
             labels = labels.cpu().data.numpy()
             acc = accuracy_score(labels.flatten(), prds.flatten())
             conf_m = confusion_matrix(labels.flatten(), prds.flatten())
+            f1_s = f1_score(labels.flatten(), prds.flatten(), average='weighted')
 
             _sum = 0.0
             for k in range(len(conf_m)):
@@ -119,6 +178,7 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch):
                   " -- Training Minibatch: Loss= " + "{:.6f}".format(train_loss[-1]) +
                   " Overall Accuracy= " + "{:.4f}".format(acc) +
                   " Normalized Accuracy= " + "{:.4f}".format(_sum / float(train_loader.dataset.num_classes)) +
+                  " F1 Score= " + "{:.4f}".format(f1_s) +
                   " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
                   )
             sys.stdout.flush()
@@ -129,7 +189,7 @@ if __name__ == '__main__':
 
     # general options
     parser.add_argument('--operation', type=str, required=True, help='Operation to be performed]',
-                        choices=['Train', 'Test', 'Plot'])
+                        choices=['Train', 'Test', 'Plot', 'Full_Test'])
     parser.add_argument('--output_path', type=str, required=True,
                         help='Path to save outcomes (such as images and trained models) of the algorithm.')
 
@@ -161,7 +221,7 @@ if __name__ == '__main__':
         train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                                        shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
         print('---- testing data ----')
-        test_dataset = DataLoader('Validation', args.dataset_path, args.testing_images,
+        test_dataset = DataLoader('Full_test', args.dataset_path, args.testing_images,
                                   args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
@@ -223,5 +283,27 @@ if __name__ == '__main__':
         model.cuda()
 
         test(test_dataloader, model, epoch)
+    elif args.operation == 'Full_Test':
+        print('---- testing ----')
+        # assert args.model_path is not None, "For inference, flag --model_path should be set."
+
+        test_dataset = DataLoader('Full_test', args.dataset_path, args.testing_images,
+                                  args.crop_size, args.stride_crop, output_path=args.output_path)
+        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                      shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+
+        # network
+        if args.model == 'WideResNet':
+            model = FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=True)
+        else:
+            raise NotImplementedError("Network " + args.model + " not implemented")
+
+        epoch = 0
+        if args.model_path is not None:
+            model.load_state_dict(torch.load(args.model_path))
+            epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
+        model.cuda()
+
+        test_full_map(test_dataloader, model, epoch, args.output_path)
     else:
         raise NotImplementedError("Operation " + args.operation + " not implemented")

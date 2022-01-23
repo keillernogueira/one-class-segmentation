@@ -10,6 +10,7 @@ from torchviz import make_dot
 from utils import *
 from config import *
 from triplet_losses import batch_hard_triplet_loss, batch_all_triplet_loss
+from prototypical import prototypical_loss
 
 
 def train(train_loader, net, tl_criterion, optimizer, epoch, alpha, margin,
@@ -22,6 +23,7 @@ def train(train_loader, net, tl_criterion, optimizer, epoch, alpha, margin,
 
     track_mean = None
     track_mean_return = None
+    acc = 0.0
 
     # Iterating over batches.
     for i, data in enumerate(train_loader):
@@ -66,6 +68,8 @@ def train(train_loader, net, tl_criterion, optimizer, epoch, alpha, margin,
         if train_strategy == 'std_hard_triplet':
             # standard
             loss = batch_hard_triplet_loss(labs.view(-1), feat_flat, margin=margin)
+        # elif train_strategy == 'prototypical':
+        #     loss, acc, _ = prototypical_loss(feat_flat, labs.view(-1))
         else:
             loss = tl_criterion(a, p, n)
         # make_dot(loss).render("original", format="png")
@@ -89,7 +93,6 @@ def train(train_loader, net, tl_criterion, optimizer, epoch, alpha, margin,
 
         # Printing.
         if (i + 1) % DISPLAY_STEP == 0:
-            acc = 0.0
             if train_strategy != 'std_hard_triplet':
                 acc = calc_accuracy_triples(a, p, n, margin=margin)
             #     acc = accuracy_score(labels.flatten(), prds.flatten())

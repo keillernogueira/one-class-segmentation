@@ -8,6 +8,7 @@ from torch.autograd import Variable
 
 from clustering import KNN
 from utils import *
+from prototypical import prototypical_loss, ProtoPred
 
 
 def test_full_map(test_loader, net, epoch, track_mean=None):
@@ -61,20 +62,21 @@ def test_full_map(test_loader, net, epoch, track_mean=None):
     return 0, 0
 
 
-def test_per_patch(test_loader, net, epoch, track_mean=None, knn_dataloader=None, k=None):
+def test_per_patch(test_loader, net, epoch, test_strategy, track_mean=None, val_dataloader=None, k=None):
     # Setting network for evaluation mode.
     net.eval()
 
     track_cm = np.zeros((2, 2))
 
-    selected_train_samples_for_knn = None
-    selected_train_labs_for_knn = None
+    selected_val_samples = None
+    selected_cal_labs = None
     knn_model = None
+    proto_model = None
 
-    if knn_dataloader is not None:
+    if val_dataloader is not None:
         with torch.no_grad():
             # extracting features for KNN
-            for i, data in enumerate(knn_dataloader):
+            for i, data in enumerate(val_dataloader):
                 # Obtaining images, labels and paths for batch.
                 inps, labs = data[0], data[1]
 
@@ -88,12 +90,16 @@ def test_per_patch(test_loader, net, epoch, track_mean=None, knn_dataloader=None
                 feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().view(-1, feat_flat.size(1)).detach().cpu()
                 labs = labs.view(-1).cpu()
 
-                selected_train_samples_for_knn = feat_flat
-                selected_train_labs_for_knn = labs
+                selected_val_samples = feat_flat
+                selected_cal_labs = labs
 
+            # print("Val data", selected_val_samples.shape, selected_cal_labs.shape, torch.bincount(selected_cal_labs))
+            # if test_strategy == 'knn':
             # pca_model = decomposition.PCA(n_components=50, random_state=12345)
-            # pca_data = pca_model.fit_transform(selected_train_samples_for_knn)
-            knn_model = KNN(selected_train_samples_for_knn, selected_train_labs_for_knn, k=k)
+            # pca_data = pca_model.fit_transform(selected_val_samples)
+            knn_model = KNN(selected_val_samples, selected_cal_labs, k=k)
+            # else:
+            #     proto_model = ProtoPred(selected_val_samples, selected_cal_labs)
 
     with torch.no_grad():
         # Iterating over batches.
@@ -112,10 +118,12 @@ def test_per_patch(test_loader, net, epoch, track_mean=None, knn_dataloader=None
             feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().view(-1, feat_flat.size(1)).detach().cpu()
             # labs = labs.detach().cpu().numpy()
 
-            if track_mean is not None:
+            if test_strategy == 'track_mean' and track_mean is not None:
                 preds = predict_patches(feat_flat, track_mean).detach().cpu().numpy()
-            else:
+            elif test_strategy == 'knn':
                 preds = knn_model.predict(feat_flat)
+            # else:
+            #     preds = proto_model.predict(feat_flat)
             track_cm += confusion_matrix(labs.flatten(), preds.flatten(), labels=[0, 1])
 
     acc = (track_cm[0][0] + track_cm[1][1])/np.sum(track_cm)

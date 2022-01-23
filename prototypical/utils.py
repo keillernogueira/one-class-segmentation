@@ -74,12 +74,12 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, nacc, tra
 def project_data(data, labels, save_name, pca_n_components=50):
     pca_model = decomposition.PCA(n_components=pca_n_components, random_state=12345)
     pca_data = pca_model.fit_transform(data)
-    tsne_model = TSNE(n_components=2, n_jobs=-1, learning_rate='auto', init='random')
+    tsne_model = TSNE(n_components=2, n_jobs=-1, init='random')
     tsne_data = tsne_model.fit_transform(pca_data)
 
     plt.figure(figsize=(16, 10))
     sns.scatterplot(x=tsne_data[:, 0], y=tsne_data[:, 1], hue=labels,
-                    palette=sns.color_palette("hls", 2), legend="full", alpha=0.3)
+                    palette=sns.color_palette("hls", 4), legend="full", alpha=0.3)
     # plt.show()
     plt.savefig(save_name)
 

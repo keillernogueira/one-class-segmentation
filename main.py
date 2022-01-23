@@ -1,7 +1,6 @@
 import torch
 from torch import optim
 import torch.nn as nn
-from torch.autograd import Variable
 
 from dataloader import DataLoader
 from config import *
@@ -10,39 +9,7 @@ from network import FCNWideResNet50
 
 from train import train
 from test import test_per_patch
-
-
-def plot(test_loader, net):
-    # Setting network for evaluation mode.
-    net.eval()
-
-    all_labels = None
-    all_feats = None
-    with torch.no_grad():
-        # Iterating over batches.
-        for i, data in enumerate(test_loader):
-
-            # Obtaining images, labels and paths for batch.
-            inps, labs = data[0], data[1]
-
-            # Casting to cuda variables.
-            inps_c = Variable(inps).cuda()
-            # labs_c = Variable(labs).cuda()
-
-            # Forwarding.
-            _, fv2, fv4 = net(inps_c)
-
-            feat_flat = torch.cat([fv2, fv4], 1)
-            feat_flat = feat_flat.permute(0, 2, 3, 1).contiguous().view(-1, feat_flat.size(1)).cpu().detach().numpy()
-
-            if all_labels is None:
-                all_labels = labs
-                all_feats = feat_flat
-            else:
-                all_labels = np.concatenate((all_labels, labs))
-                all_feats = np.concatenate((all_feats, feat_flat))
-
-    return all_feats, all_labels
+from feat_ext import general_feature_extractor
 
 
 if __name__ == '__main__':
@@ -119,7 +86,7 @@ if __name__ == '__main__':
 
         # loss
         ce_criterion = nn.CrossEntropyLoss().cuda()
-        tl_criterion = nn.TripletMarginLoss(margin=args.margin, p=2).cuda()  # TODO check cuda ??
+        tl_criterion = nn.TripletMarginLoss(margin=args.margin, p=2).cuda()
 
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
                                betas=(0.9, 0.99))
@@ -132,7 +99,7 @@ if __name__ == '__main__':
         best_records = []
         if args.model_path is not None:
             print('Loading model ' + args.model_path)
-            best_records = np.load(os.path.join(args.output_path, 'best_records.npy'))
+            best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
             model.load_state_dict(torch.load(args.model_path))
             # optimizer.load_state_dict(torch.load(args.model_path.replace("model", "opt")))
             curr_epoch += int(os.path.basename(args.model_path)[:-4].split('_')[-1])
@@ -146,20 +113,28 @@ if __name__ == '__main__':
                                args.train_strategy, args.test_strategy)
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
-                acc, nacc = test_per_patch(test_dataloader, model, epoch,
-                                           track_mean=track_mean, knn_dataloader=knn_dataloader, k=args.k)
+                acc, nacc = test_per_patch(test_dataloader, model, epoch, args.test_strategy,
+                                           track_mean=track_mean, val_dataloader=knn_dataloader, k=args.k)
                 save_best_models(model, optimizer, args.output_path, best_records, epoch, nacc, track_mean=track_mean)
             scheduler.step()
     elif args.operation == 'Test':
         print('---- testing ----')
         assert args.model_path is not None, "For inference, flag --model_path should be set."
 
-        best_records = np.load(os.path.join(args.output_path, 'best_records.npy'))
+        best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
         index = 0
         for i in range(len(best_records)):
             if best_records[index]['nacc'] < best_records[i]['nacc']:
                 index = i
         track_mean = best_records[index]['track_mean']
+
+        knn_dataloader = None
+        if args.test_strategy == 'knn' or args.test_strategy == 'prototypical':
+            print('---- knn data ----')
+            knn_dataset = DataLoader('KNN', args.dataset_path, args.training_images, args.crop_size,
+                                     args.stride_crop, output_path=args.output_path)
+            knn_dataloader = torch.utils.data.DataLoader(knn_dataset, batch_size=args.batch_size,
+                                                         shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
 
         test_dataset = DataLoader('Validation', args.dataset_path, args.testing_images,
                                   args.crop_size, args.stride_crop, output_path=args.output_path)
@@ -178,9 +153,17 @@ if __name__ == '__main__':
             epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
         model.cuda()
 
-        test_per_patch(test_dataloader, model, epoch, track_mean=track_mean)
+        test_per_patch(test_dataloader, model, epoch, args.test_strategy, track_mean=track_mean,
+                       val_dataloader=knn_dataloader, k=args.k)
     elif args.operation == 'Plot':
         print('---- plotting ----')
+        print('---- knn data ----')
+        knn_dataset = DataLoader('KNN', args.dataset_path, args.training_images, args.crop_size,
+                                 args.stride_crop, output_path=args.output_path)
+        knn_dataloader = torch.utils.data.DataLoader(knn_dataset, batch_size=args.batch_size,
+                                                     shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+
+        print('---- testing data ----')
         test_dataset = DataLoader('Plot', args.dataset_path, args.testing_images,
                                   args.crop_size, args.stride_crop, output_path=args.output_path)
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
@@ -198,8 +181,13 @@ if __name__ == '__main__':
             epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
         model.cuda()
 
-        feats, lbs = plot(test_dataloader, model)
+        print('---- extracting feat knn ----')
+        knn_feats, knn_lbs = general_feature_extractor(knn_dataloader, model)
+        print('---- extracting feat test ----')
+        feats, lbs = general_feature_extractor(test_dataloader, model)
+        knn_lbs = knn_lbs.reshape(-1)
         lbs = lbs.reshape(-1)
+        print('knn_feats', knn_feats.shape, knn_lbs.shape)
         print('feats', feats.shape, lbs.shape, np.bincount(lbs[0:100000]))
         project_data(feats[0:100000, :], lbs[0:100000], args.output_path + 'plot.png', pca_n_components=50)
     else:
