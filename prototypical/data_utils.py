@@ -1,11 +1,12 @@
 import os
 import random
+from skimage import transform
 
 import scipy
 import numpy as np
 
 
-def create_distrib(labels, crop_size, stride_size, num_classes, return_all=False):
+def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River', return_all=False):
     instances = [[[] for i in range(0)] for i in range(num_classes)]
     counter = num_classes * [0]
     binc = np.zeros((num_classes, num_classes))  # cumulative bincount for each class
@@ -34,15 +35,26 @@ def create_distrib(labels, crop_size, stride_size, num_classes, return_all=False
                     "Error create_distrib: Current patch size is " + str(len(patch_class)) + "x" + str(len(patch_class[0]))
 
                 count = np.bincount(patch_class.astype(int).flatten(), minlength=2)
-                if count[1] != 0:
-                    # if count[1] > percentage_pos_class * count[0]:
-                    instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
-                    counter[1] += 1
-                    binc[1] += count
+                if dataset == 'Coffee':
+                    if count[1] >= count[0]:
+                        instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        counter[1] += 1
+                        binc[1] += count
+                    else:
+                        instances[0].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        counter[0] += 1
+                        binc[0] += count
                 else:
-                    instances[0].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
-                    counter[0] += 1
-                    binc[0] += count
+                    # dataset River and Orange
+                    if count[1] != 0:
+                        # if count[1] > percentage_pos_class * count[0]:
+                        instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        counter[1] += 1
+                        binc[1] += count
+                    else:
+                        instances[0].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        counter[0] += 1
+                        binc[0] += count
 
     for i in range(len(counter)):
         print('Class ' + str(i) + ' has length ' + str(counter[i]) + ' - ' + np.array_str(binc[i]).replace("\n", ""))
@@ -109,6 +121,18 @@ def create_distrib_knn(labels, crop_size, stride_size, num_classes):
     return np.asarray(instances)
 
 
+def split_train_test(data_distribution, limit=5050):
+    train_distrib = []
+    test_distrib = []
+    for el in data_distribution:
+        if el[1] > limit:
+            test_distrib.append(el)
+        else:
+            train_distrib.append(el)
+
+    return np.asarray(train_distrib), np.asarray(test_distrib)
+
+
 def normalize_images(data, _mean, _std):
     for i in range(len(_mean)):
         data[:, :, i] = np.subtract(data[:, :, i], _mean[i])
@@ -147,7 +171,6 @@ def dynamically_calculate_mean_and_std(data, distrib, crop_size):
             all_patches = []
 
     # remaining images
-    print(np.asarray(all_patches).shape)
     mean, std = compute_image_mean(np.asarray(all_patches))
     mean_full.append(mean)
     std_full.append(std)
@@ -171,3 +194,31 @@ def create_or_load_statistics(data, distrib, crop_size, stride_size, output_path
                 str(stride_size) + '_std.npy'), _std)
     print(_mean, _std)
     return _mean, _std
+
+
+def data_augmentation(img, label):
+    rand_fliplr = np.random.random() > 0.50
+    rand_flipud = np.random.random() > 0.50
+    rand_rotate = np.random.random()
+
+    if rand_fliplr:
+        img = np.fliplr(img)
+        label = np.fliplr(label)
+    if rand_flipud:
+        img = np.flipud(img)
+        label = np.flipud(label)
+
+    if rand_rotate < 0.25:
+        img = transform.rotate(img, 270, order=1, preserve_range=True)
+        label = transform.rotate(label, 270, order=0, preserve_range=True)
+    elif rand_rotate < 0.50:
+        img = transform.rotate(img, 180, order=1, preserve_range=True)
+        label = transform.rotate(label, 180, order=0, preserve_range=True)
+    elif rand_rotate < 0.75:
+        img = transform.rotate(img, 90, order=1, preserve_range=True)
+        label = transform.rotate(label, 90, order=0, preserve_range=True)
+
+    img = img.astype(np.float32)
+    label = label.astype(np.int64)
+
+    return img, label

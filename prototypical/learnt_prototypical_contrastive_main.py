@@ -10,15 +10,19 @@ from torch import optim
 from torch.autograd import Variable
 
 from dataloader import DataLoader
+from dataloader_orange import DataLoaderOrange
+from dataloader_coffee import DataLoaderCoffee
+
 from config import *
 from utils import *
 from network import FCNWideResNet50
 
+from feat_ext import general_feature_extractor
 from contrastive_loss import ContrastiveLoss
 from learnt_prototypical import LearntPrototypes
 
 
-def test_full_map(test_loader, net, epoch, output_path):
+def test_full_map(test_loader, net, epoch, output_path, dataset='River'):
     # Setting network for evaluation mode.
     net.eval()
 
@@ -52,17 +56,29 @@ def test_full_map(test_loader, net, epoch, output_path):
                 occur_im[cur_x:cur_x + test_loader.dataset.crop_size,
                          cur_y:cur_y + test_loader.dataset.crop_size] += 1
 
+    if dataset == 'Orange':
+        pred_pos = np.where(occur_im.flatten() >= 1)
+
+    # normalise to remove non-predicted pixels
+    prob_im[np.where(occur_im == 0)] = 1
     occur_im[np.where(occur_im == 0)] = 1
     prob_im_argmax = ((prob_im / occur_im.astype(float)) <= 0.999).astype(int)
-    print(prob_im_argmax.shape, np.bincount(prob_im_argmax.flatten()),
-          test_loader.dataset.labels[0].shape, np.bincount(test_loader.dataset.labels[0].flatten()))
 
     # Saving predictions.
     imageio.imwrite(os.path.join(output_path, 'proto_prd.png'), prob_im_argmax*255)
 
-    acc = accuracy_score(test_loader.dataset.labels[0].flatten(), prob_im_argmax.flatten())
-    conf_m = confusion_matrix(test_loader.dataset.labels[0].flatten(), prob_im_argmax.flatten())
-    f1_s = f1_score(test_loader.dataset.labels[0].flatten(), prob_im_argmax.flatten(), average='weighted')
+    if dataset == 'River':
+        lbl = test_loader.dataset.labels[0].flatten()
+        pred = prob_im_argmax.flatten()
+    elif dataset == 'Orange':
+        lbl = test_loader.dataset.labels[0].flatten()[pred_pos]
+        pred = prob_im_argmax.flatten()[pred_pos]
+
+    print(lbl.shape, np.bincount(lbl.flatten()), pred.shape, np.bincount(pred.flatten()))
+
+    acc = accuracy_score(lbl, pred)
+    conf_m = confusion_matrix(lbl, pred)
+    f1_s = f1_score(lbl, pred, average='weighted')
 
     _sum = 0.0
     for k in range(len(conf_m)):
@@ -71,7 +87,7 @@ def test_full_map(test_loader, net, epoch, output_path):
     print("---- Validation/Test -- Epoch " + str(epoch) +
           " -- Time " + str(datetime.datetime.now().time()) +
           " Overall Accuracy= " + "{:.4f}".format(acc) +
-          " Normalized Accuracy= " + "{:.4f}".format(_sum / float(outs.shape[1])) +
+          " Normalized Accuracy= " + "{:.4f}".format(_sum / 2) +
           " F1 Score= " + "{:.4f}".format(f1_s) +
           " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
           )
@@ -196,9 +212,11 @@ if __name__ == '__main__':
                         help='Path to save outcomes (such as images and trained models) of the algorithm.')
 
     # dataset options
+    parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
+                        choices=['River', 'Orange', 'Coffee'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
-    parser.add_argument('--training_images', type=str, nargs="+", required=True, help='Training image names.')
-    parser.add_argument('--testing_images', type=str, nargs="+", required=True, help='Testing image names.')
+    parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
+    parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
     parser.add_argument('--crop_size', type=int, required=True, help='Crop size.')
     parser.add_argument('--stride_crop', type=int, required=True, help='Stride size')
 
@@ -215,20 +233,46 @@ if __name__ == '__main__':
     # specific parameters
     parser.add_argument('--margin', type=float, default=1.0, help='Margin for the contrastive learning')
     args = parser.parse_args()
-    print(args)
+    print(sys.argv[0], args)
 
     # data loaders
     if args.operation == 'Train':
-        print('---- training data ----')
-        train_dataset = DataLoader('Train', args.dataset_path, args.training_images, args.crop_size,
-                                   args.stride_crop, output_path=args.output_path)
-        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                       shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
-        print('---- testing data ----')
-        test_dataset = DataLoader('Validation', args.dataset_path, args.testing_images,
-                                  args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
-        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
-                                                      shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        if args.dataset == 'River':
+            print('---- training data ----')
+            train_dataset = DataLoader('Train', args.dataset_path, args.training_images, args.crop_size,
+                                       args.stride_crop, output_path=args.output_path)
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+            print('---- testing data ----')
+            test_dataset = DataLoader('Full_test', args.dataset_path, args.testing_images,
+                                      args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
+            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        elif args.dataset == 'Orange':
+            print('---- training data ----')
+            train_dataset = DataLoaderOrange('Train', args.dataset_path, args.crop_size, args.stride_crop,
+                                             output_path=args.output_path)
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+            print('---- testing data ----')
+            test_dataset = DataLoaderOrange('Test', args.dataset_path, args.crop_size, args.stride_crop,
+                                            mean=train_dataset.mean, std=train_dataset.std)
+            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        elif args.dataset == 'Coffee':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffee('Train', args.dataset, args.dataset_path, args.training_images,
+                                             args.crop_size, args.stride_crop, output_path=args.output_path)
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffee('Test', args.dataset, args.dataset_path, args.testing_images,
+                                            args.crop_size, args.stride_crop,
+                                            mean=train_dataset.mean, std=train_dataset.std)
+            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        else:
+            raise NotImplementedError("Dataset " + args.dataset + " not implemented")
 
         # network
         if args.model == 'WideResNet':
@@ -269,8 +313,6 @@ if __name__ == '__main__':
             scheduler.step()
     elif args.operation == 'Test':
         print('---- testing ----')
-        # assert args.model_path is not None, "For inference, flag --model_path should be set."
-
         best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
         index = 0
         for i in range(len(best_records)):
@@ -278,14 +320,6 @@ if __name__ == '__main__':
                 index = i
 
         print('---- data ----')
-        train_dataset = DataLoader('Train', args.dataset_path, args.training_images, args.crop_size,
-                                   args.stride_crop, output_path=args.output_path)
-        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
-        knn_dataset = DataLoader('KNN', args.dataset_path, args.training_images, args.crop_size,
-                                 args.stride_crop, output_path=args.output_path)
-        knn_dataloader = torch.utils.data.DataLoader(knn_dataset, batch_size=args.batch_size,
-                                                     shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
         test_dataset = DataLoader('Validation', args.dataset_path, args.testing_images,
                                   args.crop_size, args.stride_crop, output_path=args.output_path)
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
@@ -296,7 +330,8 @@ if __name__ == '__main__':
 
         # network
         if args.model == 'WideResNet':
-            model = FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=False)
+            model = LearntPrototypes(FCNWideResNet50(test_dataloader.num_classes, pretrained=True, classif=False),
+                                     squared=False, n_prototypes=1, embedding_dim=2560)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 
@@ -305,7 +340,7 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(os.path.join(args.output_path, 'model_' + str(epoch) + '.pth')))
         model.cuda()
 
-        test(knn_dataloader, test_dataloader, criterion, model, epoch)
+        test(test_dataloader, criterion, model, epoch)
     elif args.operation == 'Test_Full':
         print('---- testing ----')
 
@@ -316,7 +351,41 @@ if __name__ == '__main__':
                 index = i
 
         print('---- data ----')
-        test_dataset = DataLoader('Validation', args.dataset_path, args.testing_images,
+        if args.dataset == 'River':
+            test_dataset = DataLoader('Full_test', args.dataset_path, args.testing_images,
+                                      args.crop_size, args.stride_crop, output_path=args.output_path)
+            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        elif args.dataset == 'Orange':
+            test_dataset = DataLoaderOrange('Test', args.dataset_path, args.crop_size, args.stride_crop,
+                                            output_path=args.output_path)
+            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        else:
+            raise NotImplementedError("Dataset " + args.dataset + " not implemented")
+
+        # network
+        if args.model == 'WideResNet':
+            model = LearntPrototypes(FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=False),
+                                     squared=False, n_prototypes=1, embedding_dim=2560)
+        else:
+            raise NotImplementedError("Network " + args.model + " not implemented")
+
+        epoch = int(best_records[index]['epoch'])
+        print("loading model_" + str(epoch) + '.pth')
+        model.load_state_dict(torch.load(os.path.join(args.output_path, 'model_' + str(epoch) + '.pth')))
+        model.cuda()
+
+        test_full_map(test_dataloader, model, epoch, args.output_path, args.dataset)
+    elif args.operation == 'Plot':
+        print('---- plotting ----')
+        best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
+        index = 0
+        for i in range(len(best_records)):
+            if best_records[index]['nacc'] < best_records[i]['nacc']:
+                index = i
+
+        test_dataset = DataLoader('Plot', args.dataset_path, args.testing_images,
                                   args.crop_size, args.stride_crop, output_path=args.output_path)
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
@@ -333,40 +402,9 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(os.path.join(args.output_path, 'model_' + str(epoch) + '.pth')))
         model.cuda()
 
-        test_full_map(test_dataloader, model, epoch, args.output_path)
-    elif args.operation == 'Plot':
-        print('---- plotting ----')
-        print('---- knn data ----')
-        knn_dataset = DataLoader('KNN', args.dataset_path, args.training_images, args.crop_size,
-                                 args.stride_crop, output_path=args.output_path)
-        knn_dataloader = torch.utils.data.DataLoader(knn_dataset, batch_size=args.batch_size,
-                                                     shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
-
-        print('---- testing data ----')
-        test_dataset = DataLoader('Plot', args.dataset_path, args.testing_images,
-                                  args.crop_size, args.stride_crop, output_path=args.output_path)
-        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
-                                                      shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
-
-        # network
-        if args.model == 'WideResNet':
-            model = FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=False)
-        else:
-            raise NotImplementedError("Network " + args.model + " not implemented")
-
-        epoch = 0
-        if args.model_path is not None:
-            model.load_state_dict(torch.load(args.model_path))
-            epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
-        model.cuda()
-
-        print('---- extracting feat knn ----')
-        knn_feats, knn_lbs = general_feature_extractor(knn_dataloader, model)
         print('---- extracting feat test ----')
         feats, lbs = general_feature_extractor(test_dataloader, model)
-        knn_lbs = knn_lbs.reshape(-1)
         lbs = lbs.reshape(-1)
-        print('knn_feats', knn_feats.shape, knn_lbs.shape)
         print('feats', feats.shape, lbs.shape, np.bincount(lbs[0:100000]))
         project_data(feats[0:100000, :], lbs[0:100000], args.output_path + 'plot.png', pca_n_components=50)
     else:

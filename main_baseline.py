@@ -12,6 +12,7 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 
 from dataloader import DataLoader
+from dataloader_orange import DataLoaderOrange
 from config import *
 from utils import *
 from network import FCNWideResNet50
@@ -194,9 +195,11 @@ if __name__ == '__main__':
                         help='Path to save outcomes (such as images and trained models) of the algorithm.')
 
     # dataset options
+    parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
+                        choices=['River', 'Orange'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
-    parser.add_argument('--training_images', type=str, nargs="+", required=True, help='Training image names.')
-    parser.add_argument('--testing_images', type=str, nargs="+", required=True, help='Testing image names.')
+    parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
+    parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
     parser.add_argument('--crop_size', type=int, required=True, help='Crop size.')
     parser.add_argument('--stride_crop', type=int, required=True, help='Stride size')
 
@@ -215,16 +218,30 @@ if __name__ == '__main__':
 
     # data loaders
     if args.operation == 'Train':
-        print('---- training data ----')
-        train_dataset = DataLoader('Train', args.dataset_path, args.training_images, args.crop_size,
-                                   args.stride_crop, output_path=args.output_path)
-        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                       shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
-        print('---- testing data ----')
-        test_dataset = DataLoader('Full_test', args.dataset_path, args.testing_images,
-                                  args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
-        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
-                                                      shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        if args.dataset == 'River':
+            print('---- training data ----')
+            train_dataset = DataLoader('Train', args.dataset_path, args.training_images, args.crop_size,
+                                       args.stride_crop, output_path=args.output_path)
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+            print('---- testing data ----')
+            test_dataset = DataLoader('Full_test', args.dataset_path, args.testing_images,
+                                      args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
+            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        elif args.dataset == 'Orange':
+            print('---- training data ----')
+            train_dataset = DataLoaderOrange('Train', args.dataset_path, args.crop_size, args.stride_crop,
+                                             output_path=args.output_path)
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+            print('---- testing data ----')
+            test_dataset = DataLoaderOrange('Test', args.dataset_path, args.crop_size, args.stride_crop,
+                                            mean=train_dataset.mean, std=train_dataset.std)
+            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        else:
+            raise NotImplementedError("Dataset " + args.dataset + " not implemented")
 
         # network
         if args.model == 'WideResNet':

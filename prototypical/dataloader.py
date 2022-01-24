@@ -101,7 +101,7 @@ class DataLoader(data.Dataset):
         # Normalization.
         normalize_images(img, self.mean, self.std)
 
-        if self.mode == 'Train':
+        if self.mode == 'Train' or self.mode == 'Full_train':
             img, label = self.data_augmentation(img, label)
 
         img = np.transpose(img, (2, 0, 1))
