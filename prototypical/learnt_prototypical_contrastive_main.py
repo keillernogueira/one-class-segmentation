@@ -232,6 +232,8 @@ if __name__ == '__main__':
 
     # specific parameters
     parser.add_argument('--margin', type=float, default=1.0, help='Margin for the contrastive learning')
+    parser.add_argument('--miner', type=str2bool, default=False,
+                        help='Miner hard samples and equalize number fo samples 1:1')
     args = parser.parse_args()
     print(sys.argv[0], args)
 
@@ -282,7 +284,7 @@ if __name__ == '__main__':
             raise NotImplementedError("Network " + args.model + " not implemented")
 
         # loss
-        criterion = ContrastiveLoss(args.margin)
+        criterion = ContrastiveLoss(args.margin, args.miner)
 
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
                                betas=(0.9, 0.99))

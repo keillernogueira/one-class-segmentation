@@ -13,6 +13,8 @@ import torch.nn.functional as F
 
 from dataloader import DataLoader
 from dataloader_orange import DataLoaderOrange
+from dataloader_coffee import DataLoaderCoffee
+
 from config import *
 from utils import *
 from network import FCNWideResNet50
@@ -196,7 +198,7 @@ if __name__ == '__main__':
 
     # dataset options
     parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
-                        choices=['River', 'Orange'])
+                        choices=['River', 'Orange', 'Coffee'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
     parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
     parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
@@ -237,6 +239,18 @@ if __name__ == '__main__':
                                                            shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
             print('---- testing data ----')
             test_dataset = DataLoaderOrange('Test', args.dataset_path, args.crop_size, args.stride_crop,
+                                            mean=train_dataset.mean, std=train_dataset.std)
+            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        elif args.dataset == 'Coffee':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffee('Train', args.dataset, args.dataset_path, args.training_images,
+                                             args.crop_size, args.stride_crop, output_path=args.output_path)
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffee('Test', args.dataset, args.dataset_path, args.testing_images,
+                                            args.crop_size, args.stride_crop,
                                             mean=train_dataset.mean, std=train_dataset.std)
             test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                           shuffle=False, num_workers=NUM_WORKERS, drop_last=False)

@@ -43,7 +43,7 @@ def str2bool(v):
 
 
 def save_best_models(net, optimizer, output_path, best_records, epoch, nacc, track_mean=None):
-    if len(best_records) < 5:
+    if len(best_records) < 3:
         best_records.append({'epoch': epoch, 'nacc': nacc, 'track_mean': track_mean})
 
         torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))

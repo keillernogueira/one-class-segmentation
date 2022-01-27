@@ -6,7 +6,7 @@ import scipy
 import numpy as np
 
 
-def create_distrib(labels, crop_size, stride_size, num_classes, return_all=False):
+def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River', return_all=False):
     instances = [[[] for i in range(0)] for i in range(num_classes)]
     counter = num_classes * [0]
     binc = np.zeros((num_classes, num_classes))  # cumulative bincount for each class
@@ -35,15 +35,26 @@ def create_distrib(labels, crop_size, stride_size, num_classes, return_all=False
                     "Error create_distrib: Current patch size is " + str(len(patch_class)) + "x" + str(len(patch_class[0]))
 
                 count = np.bincount(patch_class.astype(int).flatten(), minlength=2)
-                if count[1] != 0:
-                    # if count[1] > percentage_pos_class * count[0]:
-                    instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
-                    counter[1] += 1
-                    binc[1] += count
+                if dataset == 'Coffee':
+                    if count[1] >= count[0]:
+                        instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        counter[1] += 1
+                        binc[1] += count
+                    else:
+                        instances[0].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        counter[0] += 1
+                        binc[0] += count
                 else:
-                    instances[0].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
-                    counter[0] += 1
-                    binc[0] += count
+                    # dataset River and Orange
+                    if count[1] != 0:
+                        # if count[1] > percentage_pos_class * count[0]:
+                        instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        counter[1] += 1
+                        binc[1] += count
+                    else:
+                        instances[0].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        counter[0] += 1
+                        binc[0] += count
 
     for i in range(len(counter)):
         print('Class ' + str(i) + ' has length ' + str(counter[i]) + ' - ' + np.array_str(binc[i]).replace("\n", ""))
