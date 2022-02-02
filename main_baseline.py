@@ -18,6 +18,7 @@ from dataloader_coffee import DataLoaderCoffee
 from config import *
 from utils import *
 from network import FCNWideResNet50
+from focal_loss import BinaryFocalLoss, FocalLoss
 
 
 def test_full_map(test_loader, net, epoch, output_path):
@@ -83,7 +84,7 @@ def test_full_map(test_loader, net, epoch, output_path):
     return 0, 0, 0
 
 
-def test(test_loader, net, epoch):
+def test(test_loader, net, epoch, loss_type):
     # Setting network for evaluation mode.
     net.eval()
 
@@ -101,11 +102,16 @@ def test(test_loader, net, epoch):
 
             # Forwarding.
             outs, _, _ = net(inps_c)
-            # Computing probabilities.
-            soft_outs = F.softmax(outs, dim=1)
 
-            # Obtaining prior predictions.
-            prds = soft_outs.cpu().data.numpy().argmax(axis=1)
+            if 'Binary' in loss_type:
+                sigmoid_outs = torch.sigmoid(outs)
+                # Obtaining predictions.
+                prds = (sigmoid_outs > 0.5).int().cpu().data.numpy()
+            else:
+                soft_outs = F.softmax(outs, dim=1)
+                # Obtaining predictions.
+                prds = soft_outs.cpu().data.numpy().argmax(axis=1)
+
             track_cm += confusion_matrix(labs.flatten(), prds.flatten(), labels=[0, 1])
 
         acc = (track_cm[0][0] + track_cm[1][1]) / np.sum(track_cm)
@@ -129,7 +135,7 @@ def test(test_loader, net, epoch):
     return acc, nacc, track_cm
 
 
-def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch):
+def train(train_loader, net, criterion, optimizer, epoch, loss_type):
     # Setting network for training mode.
     net.train()
 
@@ -150,13 +156,12 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch):
 
         # Forwarding.
         outs, _, _ = net(inps)
-        soft_outs = F.softmax(outs, dim=1)
-
-        # Obtaining predictions.
-        prds = soft_outs.cpu().data.numpy().argmax(axis=1)
 
         # Computing Cross entropy loss.
-        loss = ce_criterion(outs, labs)
+        if 'Binary' in loss_type:
+            loss = criterion(outs.squeeze(), labs.float())
+        else:
+            loss = criterion(outs, labs)
 
         # Computing backpropagation.
         loss.backward()
@@ -167,6 +172,14 @@ def train(train_loader, net, ce_criterion, tl_criterion, optimizer, epoch):
 
         # Printing.
         if (i + 1) % DISPLAY_STEP == 0:
+            if 'Binary' in loss_type:
+                sigmoid_outs = torch.sigmoid(outs)
+                # Obtaining predictions.
+                prds = (sigmoid_outs > 0.5).int().cpu().data.numpy()
+            else:
+                soft_outs = F.softmax(outs, dim=1)
+                # Obtaining predictions.
+                prds = soft_outs.cpu().data.numpy().argmax(axis=1)
             labels = labels.cpu().data.numpy()
             acc = accuracy_score(labels.flatten(), prds.flatten())
             conf_m = confusion_matrix(labels.flatten(), prds.flatten())
@@ -208,6 +221,8 @@ if __name__ == '__main__':
     # model options
     parser.add_argument('--model', type=str, required=True, default=None,
                         help='Model to be used.', choices=['WideResNet'])
+    parser.add_argument('--loss', type=str, required=True, default=None,
+                        help='Loss function to be used.', choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
                         help='Path to a trained model that can be load and used for inference.')
     parser.add_argument('--weights', type=float, nargs='+', default=[1.0, 1.0], help='Weight Loss.')
@@ -259,14 +274,25 @@ if __name__ == '__main__':
 
         # network
         if args.model == 'WideResNet':
-            model = FCNWideResNet50(train_dataset.num_classes, pretrained=True, classif=True)
+            model = FCNWideResNet50(1 if 'Binary' in args.loss else train_dataset.num_classes,
+                                    pretrained=True, classif=True)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
         model.cuda()
 
         # loss
-        ce_criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor(args.weights)).cuda()
-        tl_criterion = nn.TripletMarginLoss(margin=1.0, p=2)
+        if args.loss == 'CE':
+            criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor(args.weights)).cuda()
+        elif args.loss == 'BinaryCE':
+            # https://discuss.pytorch.org/t/bcewithlogitsloss-and-class-weights/88837/2
+            criterion = nn.BCEWithLogitsLoss(pos_weight=torch.FloatTensor(args.weights[1:])).cuda()
+        elif args.loss == 'BinaryFocal':
+            criterion = BinaryFocalLoss(alpha=args.weights[1], gamma=2).cuda()
+        elif args.loss == 'Focal':
+            criterion = FocalLoss(alpha=args.weights, gamma=2).cuda()
+        else:
+            raise NotImplementedError("Loss " + args.loss + " not implemented")
+        # tl_criterion = nn.TripletMarginLoss(margin=1.0, p=2)
 
         if model.classif is True:
             optimizer = optim.Adam([
@@ -285,10 +311,10 @@ if __name__ == '__main__':
         best_records = []
         print('---- training ----')
         for epoch in range(curr_epoch, args.epoch_num + 1):
-            train(train_dataloader, model, ce_criterion, tl_criterion, optimizer, epoch)
+            train(train_dataloader, model, criterion, optimizer, epoch, args.loss)
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
-                acc, nacc, _ = test(test_dataloader, model, epoch)
+                acc, nacc, _ = test(test_dataloader, model, epoch, args.loss)
                 save_best_models(model, optimizer, args.output_path, best_records, epoch, nacc)
 
             scheduler.step()

@@ -42,8 +42,8 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def save_best_models(net, optimizer, output_path, best_records, epoch, nacc, track_mean=None):
-    if len(best_records) < 3:
+def save_best_models(net, optimizer, output_path, best_records, epoch, nacc, num_saves=3, track_mean=None):
+    if len(best_records) < num_saves:
         best_records.append({'epoch': epoch, 'nacc': nacc, 'track_mean': track_mean})
 
         torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))

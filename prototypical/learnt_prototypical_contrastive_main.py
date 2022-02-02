@@ -22,7 +22,7 @@ from contrastive_loss import ContrastiveLoss
 from learnt_prototypical import LearntPrototypes
 
 
-def test_full_map(test_loader, net, epoch, output_path, dataset='River'):
+def test_full_map(test_loader, criterion, net, epoch, output_path, dataset='River'):
     # Setting network for evaluation mode.
     net.eval()
 
@@ -62,7 +62,8 @@ def test_full_map(test_loader, net, epoch, output_path, dataset='River'):
     # normalise to remove non-predicted pixels
     prob_im[np.where(occur_im == 0)] = 1
     occur_im[np.where(occur_im == 0)] = 1
-    prob_im_argmax = ((prob_im / occur_im.astype(float)) <= 0.999).astype(int)
+    # prob_im_argmax = ((prob_im / occur_im.astype(float)) <= 0.999).astype(int)  # v1
+    prob_im_argmax = ((prob_im / occur_im.astype(float)) < criterion.margin).astype(int)
 
     # Saving predictions.
     imageio.imwrite(os.path.join(output_path, 'proto_prd.png'), prob_im_argmax*255)
@@ -115,7 +116,8 @@ def test(test_loader, criterion, net, epoch):
             # Forwarding.
             outs = net(inps_c)
 
-            pred = (-outs <= 0.999).int().detach().cpu().numpy()
+            # pred = (-outs <= 0.999).int().detach().cpu().numpy()  # v1
+            pred = (-outs < criterion.margin).int().detach().cpu().numpy()
             track_cm += confusion_matrix(labs.flatten(), pred.flatten(), labels=[0, 1])
 
     acc = (track_cm[0][0] + track_cm[1][1])/np.sum(track_cm)
@@ -174,7 +176,8 @@ def train(train_loader, net, criterion, optimizer, epoch, output):
 
         # Printing.
         if (i + 1) % DISPLAY_STEP == 0:
-            pred = (-outs <= 0.999).int().detach().cpu().numpy()
+            # pred = (-outs <= 0.999).int().detach().cpu().numpy()  # v1
+            pred = (-outs < criterion.margin).int().detach().cpu().numpy()
             acc = accuracy_score(labels.flatten(), pred.flatten())
             conf_m = confusion_matrix(labels.flatten(), pred.flatten(), labels=[0, 1])
             f1_s = f1_score(labels.flatten(), pred.flatten(), average='weighted')
@@ -225,6 +228,7 @@ if __name__ == '__main__':
                         help='Model to be used.', choices=['WideResNet'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
                         help='Path to a trained model that can be load and used for inference.')
+    parser.add_argument('--weights', type=float, nargs='+', default=[1.0, 1.0], help='Weight Loss.')
     parser.add_argument('--learning_rate', type=float, default=0.01, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=0.005, help='Weight decay')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
@@ -284,7 +288,7 @@ if __name__ == '__main__':
             raise NotImplementedError("Network " + args.model + " not implemented")
 
         # loss
-        criterion = ContrastiveLoss(args.margin, args.miner)
+        criterion = ContrastiveLoss(args.margin, args.miner, args.weights)
 
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
                                betas=(0.9, 0.99))
@@ -328,7 +332,7 @@ if __name__ == '__main__':
                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
 
         # loss
-        criterion = nn.CrossEntropyLoss()
+        criterion = ContrastiveLoss(args.margin, args.miner, args.weights)
 
         # network
         if args.model == 'WideResNet':
@@ -366,6 +370,9 @@ if __name__ == '__main__':
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
 
+        # loss
+        criterion = ContrastiveLoss(args.margin, args.miner, args.weights)
+
         # network
         if args.model == 'WideResNet':
             model = LearntPrototypes(FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=False),
@@ -378,7 +385,7 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(os.path.join(args.output_path, 'model_' + str(epoch) + '.pth')))
         model.cuda()
 
-        test_full_map(test_dataloader, model, epoch, args.output_path, args.dataset)
+        test_full_map(test_dataloader, criterion, model, epoch, args.output_path, args.dataset)
     elif args.operation == 'Plot':
         print('---- plotting ----')
         best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)

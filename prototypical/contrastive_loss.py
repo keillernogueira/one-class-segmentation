@@ -3,10 +3,11 @@ import torch.nn as nn
 
 
 class ContrastiveLoss(nn.Module):
-    def __init__(self, margin=1.0, has_miner=True):
+    def __init__(self, margin=1.0, has_miner=True, weights=[1.0, 1.0]):
         super(ContrastiveLoss, self).__init__()
         self.margin = margin
         self.has_miner = has_miner
+        self.weights = torch.FloatTensor(weights).cuda()
 
     def forward(self, data, labels):
         if len(data.shape) == 4:
@@ -15,15 +16,17 @@ class ContrastiveLoss(nn.Module):
             labels = labels.flatten()
 
         if self.has_miner:
-            data, labels = self.miner(data, labels)
+            data, labels, self.weights = self.miner(data, labels)
 
+        print('self.weights', self.weights)
         # poss = torch.gather(data.flatten(), 0, labels.flatten().nonzero().squeeze())
         # negs = torch.gather(data.flatten(), 0, (1 - labels).flatten().nonzero().squeeze())
         # print('1', torch.min(negs).data, torch.max(negs), torch.min(poss), torch.max(poss))
         # print('pos ', torch.mean(labels * torch.pow(data, 2)))
         # print('neg ', torch.mean((1 - labels) * torch.pow(torch.clamp(self.margin - data, min=0.0), 2)))
-        loss_contrastive = torch.mean(labels * torch.pow(data, 2) +
-                                      (1 - labels) * torch.pow(torch.clamp(self.margin - data, min=0.0), 2))
+        loss_contrastive = torch.mean(self.weights[1] * labels * torch.pow(data, 2) +
+                                      self.weights[0] * (1 - labels) *
+                                      torch.pow(torch.clamp(self.margin - data, min=0.0), 2))
         return loss_contrastive
 
     def miner(self, data, labels):
@@ -31,7 +34,7 @@ class ContrastiveLoss(nn.Module):
         all_neg_values = data[(1 - labels).bool()]
 
         # get all **hard** samples of the negative class with dist <= margin
-        neg_hard = all_neg_values[all_neg_values <= self.margin]
+        neg_hard = all_neg_values[all_neg_values < self.margin]  # I used '<=' in first version
 
         # print('1', neg_hard.shape, all_neg_values.shape, all_pos_values.shape)
 
@@ -41,9 +44,14 @@ class ContrastiveLoss(nn.Module):
                 pos_hard, _ = torch.topk(all_pos_values, neg_hard.shape[0], largest=True)
             else:
                 pos_hard = all_pos_values  # get all positive samples
-                neg_hard, _ = torch.topk(neg_hard, pos_hard.shape[0], largest=False)
+                # with the line below commented out, it was called v2
+                # neg_hard, _ = torch.topk(neg_hard, pos_hard.shape[0], largest=False)  # this is v1
         else:
-            return data, labels
+            total = torch.bincount(labels)[0] + torch.bincount(labels)[1]
+            weights = torch.FloatTensor([1.0 + (torch.bincount(labels)[1] / total),
+                                         1.0 + (torch.bincount(labels)[0] / total)]).cuda()
+            print('----- 1 proportion ', torch.bincount(labels), total, weights)
+            return data, labels, weights
             # uncomment lines below to balance dataset
             # pos_hard = all_pos_values  # get all positive samples
             # neg_hard, _ = torch.topk(all_neg_values, pos_hard.shape[0], largest=False)
@@ -56,5 +64,9 @@ class ContrastiveLoss(nn.Module):
         #       torch.min(all_pos_values), torch.max(all_pos_values),
         #       torch.min(neg_hard), torch.max(neg_hard), torch.min(pos_hard), torch.max(pos_hard))
         # print('----------------------------------------------------------------------------------------------------')
+        total = neg_labels.shape[0] + pos_labels.shape[0]
+        weights = torch.FloatTensor([1.0+(pos_labels.shape[0] / total), 1.0+(neg_labels.shape[0] / total)]).cuda()
+        print('----- 2 proportion ', neg_labels.shape, pos_labels.shape, total, weights)
 
-        return torch.cat([neg_hard, pos_hard]), torch.cat([neg_labels, pos_labels])
+        # TODO uma opcao poderia ser definir os weights com base na proporcao aqui?
+        return torch.cat([neg_hard, pos_hard]), torch.cat([neg_labels, pos_labels]), weights
