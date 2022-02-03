@@ -10,7 +10,6 @@ class BinaryFocalLoss(nn.Module):
         super(BinaryFocalLoss, self).__init__()
         self.gamma = gamma
         self.alpha = alpha
-        print('inside', self.gamma, self.alpha)
 
     def forward(self, inputs, targets):
         if len(inputs.shape) == 3:

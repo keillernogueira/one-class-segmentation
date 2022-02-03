@@ -18,7 +18,7 @@ from dataloader_coffee import DataLoaderCoffee
 from config import *
 from utils import *
 from network import FCNWideResNet50
-from focal_loss import BinaryFocalLoss, FocalLoss
+from focal_loss import BinaryFocalLoss, FocalLoss, FocalLossV2
 
 
 def test_full_map(test_loader, net, epoch, output_path):
@@ -289,7 +289,7 @@ if __name__ == '__main__':
         elif args.loss == 'BinaryFocal':
             criterion = BinaryFocalLoss(alpha=args.weights[1], gamma=2).cuda()
         elif args.loss == 'Focal':
-            criterion = FocalLoss(alpha=args.weights, gamma=2).cuda()
+            criterion = FocalLossV2(weight=torch.FloatTensor(args.weights).cuda(), gamma=2).cuda()
         else:
             raise NotImplementedError("Loss " + args.loss + " not implemented")
         # tl_criterion = nn.TripletMarginLoss(margin=1.0, p=2)
