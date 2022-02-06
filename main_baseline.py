@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from dataloader import DataLoader
 from dataloader_orange import DataLoaderOrange
 from dataloader_coffee import DataLoaderCoffee
+from dataloader_coffee_full import DataLoaderCoffeeFull
 
 from config import *
 from utils import *
@@ -106,13 +107,20 @@ def test(test_loader, net, epoch, loss_type):
             if 'Binary' in loss_type:
                 sigmoid_outs = torch.sigmoid(outs)
                 # Obtaining predictions.
-                prds = (sigmoid_outs > 0.5).int().cpu().data.numpy()
+                prds = (sigmoid_outs > 0.5).int().cpu().data.numpy().flatten()
             else:
                 soft_outs = F.softmax(outs, dim=1)
                 # Obtaining predictions.
-                prds = soft_outs.cpu().data.numpy().argmax(axis=1)
+                prds = soft_outs.cpu().data.numpy().argmax(axis=1).flatten()
+            labs = labs.flatten()
 
-            track_cm += confusion_matrix(labs.flatten(), prds.flatten(), labels=[0, 1])
+            if test_loader.dataset.dataset == 'Coffee_Full':
+                # filtering out pixels
+                coord = np.where(labs != 2)
+                labs = labs[coord]
+                prds = prds[coord]
+
+            track_cm += confusion_matrix(labs, prds, labels=[0, 1])
 
         acc = (track_cm[0][0] + track_cm[1][1]) / np.sum(track_cm)
         f1_s = f1_with_cm(track_cm)
@@ -175,15 +183,22 @@ def train(train_loader, net, criterion, optimizer, epoch, loss_type):
             if 'Binary' in loss_type:
                 sigmoid_outs = torch.sigmoid(outs)
                 # Obtaining predictions.
-                prds = (sigmoid_outs > 0.5).int().cpu().data.numpy()
+                prds = (sigmoid_outs > 0.5).int().cpu().data.numpy().flatten()
             else:
                 soft_outs = F.softmax(outs, dim=1)
                 # Obtaining predictions.
-                prds = soft_outs.cpu().data.numpy().argmax(axis=1)
-            labels = labels.cpu().data.numpy()
-            acc = accuracy_score(labels.flatten(), prds.flatten())
-            conf_m = confusion_matrix(labels.flatten(), prds.flatten())
-            f1_s = f1_score(labels.flatten(), prds.flatten(), average='weighted')
+                prds = soft_outs.cpu().data.numpy().argmax(axis=1).flatten()
+            labels = labels.cpu().data.numpy().flatten()
+
+            if train_dataloader.dataset.dataset == 'Coffee_Full':
+                # filtering out pixels
+                coord = np.where(labels != 2)
+                labels = labels[coord]
+                prds = prds[coord]
+
+            acc = accuracy_score(labels, prds)
+            conf_m = confusion_matrix(labels, prds)
+            f1_s = f1_score(labels, prds, average='weighted')
 
             _sum = 0.0
             for k in range(len(conf_m)):
@@ -211,7 +226,7 @@ if __name__ == '__main__':
 
     # dataset options
     parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
-                        choices=['River', 'Orange', 'Coffee'])
+                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
     parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
     parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
@@ -269,6 +284,18 @@ if __name__ == '__main__':
                                             mean=train_dataset.mean, std=train_dataset.std)
             test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                           shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        elif args.dataset == 'Coffee_Full':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffeeFull('Train', args.dataset, args.dataset_path, args.training_images,
+                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffeeFull('Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.stride_crop,
+                                                mean=train_dataset.mean, std=train_dataset.std)
+            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
 
@@ -282,7 +309,8 @@ if __name__ == '__main__':
 
         # loss
         if args.loss == 'CE':
-            criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor(args.weights)).cuda()
+            # ignore_index=2 because of the background of the Coffee_Full dataset
+            criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor(args.weights), ignore_index=2).cuda()
         elif args.loss == 'BinaryCE':
             # https://discuss.pytorch.org/t/bcewithlogitsloss-and-class-weights/88837/2
             criterion = nn.BCEWithLogitsLoss(pos_weight=torch.FloatTensor(args.weights[1:])).cuda()

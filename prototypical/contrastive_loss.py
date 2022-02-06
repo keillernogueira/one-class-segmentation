@@ -3,11 +3,12 @@ import torch.nn as nn
 
 
 class ContrastiveLoss(nn.Module):
-    def __init__(self, margin=1.0, has_miner=True, weights=[1.0, 1.0]):
+    def __init__(self, margin=1.0, has_miner=True, weights=[1.0, 1.0], ignore_index=-1):
         super(ContrastiveLoss, self).__init__()
         self.margin = margin
         self.has_miner = has_miner
         self.weights = torch.FloatTensor(weights).cuda()
+        self.ignore_index = ignore_index
 
     def forward(self, data, labels):
         if len(data.shape) == 4:
@@ -15,10 +16,14 @@ class ContrastiveLoss(nn.Module):
         if len(labels.shape) == 3:
             labels = labels.flatten()
 
+        # filtering out pixels
+        coord = torch.where(labels != self.ignore_index)
+        labels = labels[coord]
+        data = data[coord]
+
         if self.has_miner:
             data, labels, self.weights = self.miner(data, labels)
 
-        print('self.weights', self.weights)
         # poss = torch.gather(data.flatten(), 0, labels.flatten().nonzero().squeeze())
         # negs = torch.gather(data.flatten(), 0, (1 - labels).flatten().nonzero().squeeze())
         # print('1', torch.min(negs).data, torch.max(negs), torch.min(poss), torch.max(poss))
@@ -50,7 +55,7 @@ class ContrastiveLoss(nn.Module):
             total = torch.bincount(labels)[0] + torch.bincount(labels)[1]
             weights = torch.FloatTensor([1.0 + (torch.bincount(labels)[1] / total),
                                          1.0 + (torch.bincount(labels)[0] / total)]).cuda()
-            print('----- 1 proportion ', torch.bincount(labels), total, weights)
+            # print('----- 1 proportion ', torch.bincount(labels), total, weights)
             return data, labels, weights
             # uncomment lines below to balance dataset
             # pos_hard = all_pos_values  # get all positive samples
@@ -66,7 +71,6 @@ class ContrastiveLoss(nn.Module):
         # print('----------------------------------------------------------------------------------------------------')
         total = neg_labels.shape[0] + pos_labels.shape[0]
         weights = torch.FloatTensor([1.0+(pos_labels.shape[0] / total), 1.0+(neg_labels.shape[0] / total)]).cuda()
-        print('----- 2 proportion ', neg_labels.shape, pos_labels.shape, total, weights)
+        # print('----- 2 proportion ', neg_labels.shape, pos_labels.shape, total, weights)
 
-        # TODO uma opcao poderia ser definir os weights com base na proporcao aqui?
         return torch.cat([neg_hard, pos_hard]), torch.cat([neg_labels, pos_labels]), weights

@@ -12,6 +12,7 @@ from torch.autograd import Variable
 from dataloader import DataLoader
 from dataloader_orange import DataLoaderOrange
 from dataloader_coffee import DataLoaderCoffee
+from dataloader_coffee_full import DataLoaderCoffeeFull
 
 from config import *
 from utils import *
@@ -117,8 +118,16 @@ def test(test_loader, criterion, net, epoch):
             outs = net(inps_c)
 
             # pred = (-outs <= 0.999).int().detach().cpu().numpy()  # v1
-            pred = (-outs < criterion.margin).int().detach().cpu().numpy()
-            track_cm += confusion_matrix(labs.flatten(), pred.flatten(), labels=[0, 1])
+            pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
+            labs = labs.flatten()
+
+            if test_loader.dataset.dataset == 'Coffee_Full':
+                # filtering out pixels
+                coord = np.where(labs != 2)
+                labs = labs[coord]
+                pred = pred[coord]
+
+            track_cm += confusion_matrix(labs, pred, labels=[0, 1])
 
     acc = (track_cm[0][0] + track_cm[1][1])/np.sum(track_cm)
     f1_s = f1_with_cm(track_cm)
@@ -177,10 +186,18 @@ def train(train_loader, net, criterion, optimizer, epoch, output):
         # Printing.
         if (i + 1) % DISPLAY_STEP == 0:
             # pred = (-outs <= 0.999).int().detach().cpu().numpy()  # v1
-            pred = (-outs < criterion.margin).int().detach().cpu().numpy()
-            acc = accuracy_score(labels.flatten(), pred.flatten())
-            conf_m = confusion_matrix(labels.flatten(), pred.flatten(), labels=[0, 1])
-            f1_s = f1_score(labels.flatten(), pred.flatten(), average='weighted')
+            pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
+            labels = labels.flatten()
+
+            if train_loader.dataset.dataset == 'Coffee_Full':
+                # filtering out pixels
+                coord = np.where(labels != 2)
+                labels = labels[coord]
+                pred = pred[coord]
+
+            acc = accuracy_score(labels, pred)
+            conf_m = confusion_matrix(labels, pred, labels=[0, 1])
+            f1_s = f1_score(labels, pred, average='weighted')
 
             _sum = 0.0
             for k in range(len(conf_m)):
@@ -216,7 +233,7 @@ if __name__ == '__main__':
 
     # dataset options
     parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
-                        choices=['River', 'Orange', 'Coffee'])
+                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
     parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
     parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
@@ -277,6 +294,18 @@ if __name__ == '__main__':
                                             mean=train_dataset.mean, std=train_dataset.std)
             test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                           shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        elif args.dataset == 'Coffee_Full':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffeeFull('Train', args.dataset, args.dataset_path, args.training_images,
+                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffeeFull('Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.stride_crop,
+                                                mean=train_dataset.mean, std=train_dataset.std)
+            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
 
@@ -288,7 +317,7 @@ if __name__ == '__main__':
             raise NotImplementedError("Network " + args.model + " not implemented")
 
         # loss
-        criterion = ContrastiveLoss(args.margin, args.miner, args.weights)
+        criterion = ContrastiveLoss(args.margin, args.miner, args.weights, ignore_index=2)
 
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
                                betas=(0.9, 0.99))
