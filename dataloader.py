@@ -14,12 +14,13 @@ from data_utils import create_distrib, create_or_load_statistics, normalize_imag
 
 class DataLoader(data.Dataset):
 
-    def __init__(self, mode, dataset_input_path, images, crop_size, stride_size,
+    def __init__(self, mode, dataset, dataset_input_path, images, crop_size, stride_size,
                  statistics="own", mean=None, std=None, output_path=None):
         super().__init__()
         assert mode in ['Full_train', 'Train', 'Validation', 'Full_test', 'Plot', 'KNN']
 
         self.mode = mode
+        self.dataset = dataset
         self.dataset_input_path = dataset_input_path
         self.images = images
         self.crop_size = crop_size

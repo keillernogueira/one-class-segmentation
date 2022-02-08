@@ -2,7 +2,9 @@ import gc
 import sys
 import datetime
 import imageio
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
+import numpy as np
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score
+import scipy.stats as stats
 
 import torch
 import torch.nn as nn
@@ -23,7 +25,7 @@ from contrastive_loss import ContrastiveLoss
 from learnt_prototypical import LearntPrototypes
 
 
-def test_full_map(test_loader, criterion, net, epoch, output_path, dataset='River'):
+def test_full_map(test_loader, criterion, net, epoch, output_path):
     # Setting network for evaluation mode.
     net.eval()
 
@@ -57,7 +59,7 @@ def test_full_map(test_loader, criterion, net, epoch, output_path, dataset='Rive
                 occur_im[cur_x:cur_x + test_loader.dataset.crop_size,
                          cur_y:cur_y + test_loader.dataset.crop_size] += 1
 
-    if dataset == 'Orange':
+    if test_loader.dataset.dataset == 'Orange':
         pred_pos = np.where(occur_im.flatten() >= 1)
 
     # normalise to remove non-predicted pixels
@@ -65,22 +67,35 @@ def test_full_map(test_loader, criterion, net, epoch, output_path, dataset='Rive
     occur_im[np.where(occur_im == 0)] = 1
     # prob_im_argmax = ((prob_im / occur_im.astype(float)) <= 0.999).astype(int)  # v1
     prob_im_argmax = ((prob_im / occur_im.astype(float)) < criterion.margin).astype(int)
+    print(prob_im_argmax.shape, np.bincount(prob_im_argmax.flatten()),
+          test_loader.dataset.labels[0].shape, np.bincount(test_loader.dataset.labels[0].flatten()))
 
+    # pixel outside area should be 0 for the final image
+    prob_im_argmax[np.where(test_loader.dataset.labels[0] == 2)] = 0
     # Saving predictions.
     imageio.imwrite(os.path.join(output_path, 'proto_prd.png'), prob_im_argmax*255)
 
-    if dataset == 'River':
-        lbl = test_loader.dataset.labels[0].flatten()
-        pred = prob_im_argmax.flatten()
-    elif dataset == 'Orange':
+    if test_loader.dataset.dataset == 'Coffee_Full':
+        labs = test_loader.dataset.labels[0]
+        coord = np.where(labs != 2)
+        lbl = labs[coord]
+        pred = prob_im_argmax[coord]
+    elif test_loader.dataset.dataset == 'Orange':
         lbl = test_loader.dataset.labels[0].flatten()[pred_pos]
         pred = prob_im_argmax.flatten()[pred_pos]
+    else:
+        lbl = test_loader.dataset.labels[0].flatten()
+        pred = prob_im_argmax.flatten()
 
     print(lbl.shape, np.bincount(lbl.flatten()), pred.shape, np.bincount(pred.flatten()))
 
     acc = accuracy_score(lbl, pred)
     conf_m = confusion_matrix(lbl, pred)
-    f1_s = f1_score(lbl, pred, average='weighted')
+    f1_s_w = f1_score(lbl, pred, average='weighted')
+    f1_s_micro = f1_score(lbl, pred, average='micro')
+    f1_s_macro = f1_score(lbl, pred, average='macro')
+    kappa = cohen_kappa_score(lbl, pred)
+    tau, p = stats.kendalltau(lbl, pred)
 
     _sum = 0.0
     for k in range(len(conf_m)):
@@ -89,14 +104,16 @@ def test_full_map(test_loader, criterion, net, epoch, output_path, dataset='Rive
     print("---- Validation/Test -- Epoch " + str(epoch) +
           " -- Time " + str(datetime.datetime.now().time()) +
           " Overall Accuracy= " + "{:.4f}".format(acc) +
-          " Normalized Accuracy= " + "{:.4f}".format(_sum / 2) +
-          " F1 Score= " + "{:.4f}".format(f1_s) +
+          " Normalized Accuracy= " + "{:.4f}".format(_sum / 2.0) +
+          " F1 score weighted= " + "{:.4f}".format(f1_s_w) +
+          " F1 score micro= " + "{:.4f}".format(f1_s_micro) +
+          " F1 score macro= " + "{:.4f}".format(f1_s_macro) +
+          " Kappa= " + "{:.4f}".format(kappa) +
+          " Tau= " + "{:.4f}".format(tau) +
           " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
           )
 
     sys.stdout.flush()
-
-    return 0, 0, 0
 
 
 def test(test_loader, criterion, net, epoch):
@@ -262,52 +279,41 @@ if __name__ == '__main__':
     if args.operation == 'Train':
         if args.dataset == 'River':
             print('---- training data ----')
-            train_dataset = DataLoader('Train', args.dataset_path, args.training_images, args.crop_size,
+            train_dataset = DataLoader('Train', args.dataset, args.dataset_path, args.training_images, args.crop_size,
                                        args.stride_crop, output_path=args.output_path)
-            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
             print('---- testing data ----')
-            test_dataset = DataLoader('Full_test', args.dataset_path, args.testing_images,
+            test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
                                       args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
-            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
-                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
         elif args.dataset == 'Orange':
             print('---- training data ----')
-            train_dataset = DataLoaderOrange('Train', args.dataset_path, args.crop_size, args.stride_crop,
+            train_dataset = DataLoaderOrange('Train', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
                                              output_path=args.output_path)
-            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
             print('---- testing data ----')
-            test_dataset = DataLoaderOrange('Test', args.dataset_path, args.crop_size, args.stride_crop,
+            test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
                                             mean=train_dataset.mean, std=train_dataset.std)
-            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
-                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
         elif args.dataset == 'Coffee':
             print('---- training data ----')
             train_dataset = DataLoaderCoffee('Train', args.dataset, args.dataset_path, args.training_images,
                                              args.crop_size, args.stride_crop, output_path=args.output_path)
-            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
             print('---- testing data ----')
             test_dataset = DataLoaderCoffee('Test', args.dataset, args.dataset_path, args.testing_images,
                                             args.crop_size, args.stride_crop,
                                             mean=train_dataset.mean, std=train_dataset.std)
-            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
-                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
         elif args.dataset == 'Coffee_Full':
             print('---- training data ----')
             train_dataset = DataLoaderCoffeeFull('Train', args.dataset, args.dataset_path, args.training_images,
                                                  args.crop_size, args.stride_crop, output_path=args.output_path)
-            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
             print('---- testing data ----')
             test_dataset = DataLoaderCoffeeFull('Test', args.dataset, args.dataset_path, args.testing_images,
                                                 args.crop_size, args.stride_crop,
                                                 mean=train_dataset.mean, std=train_dataset.std)
-            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
-                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
+
+        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                       shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                      shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
 
         # network
         if args.model == 'WideResNet':
@@ -387,17 +393,26 @@ if __name__ == '__main__':
 
         print('---- data ----')
         if args.dataset == 'River':
-            test_dataset = DataLoader('Full_test', args.dataset_path, args.testing_images,
+            print('---- testing data ----')
+            test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
                                       args.crop_size, args.stride_crop, output_path=args.output_path)
-            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
-                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
         elif args.dataset == 'Orange':
-            test_dataset = DataLoaderOrange('Test', args.dataset_path, args.crop_size, args.stride_crop,
+            print('---- testing data ----')
+            test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
                                             output_path=args.output_path)
-            test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
-                                                          shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+        elif args.dataset == 'Coffee':
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffee('Test', args.dataset, args.dataset_path, args.testing_images,
+                                            args.crop_size, args.stride_crop, output_path=args.output_path)
+        elif args.dataset == 'Coffee_Full':
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.stride_crop, output_path=args.output_path)
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
+
+        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                      shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
 
         # loss
         criterion = ContrastiveLoss(args.margin, args.miner, args.weights)
@@ -414,7 +429,7 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(os.path.join(args.output_path, 'model_' + str(epoch) + '.pth')))
         model.cuda()
 
-        test_full_map(test_dataloader, criterion, model, epoch, args.output_path, args.dataset)
+        test_full_map(test_dataloader, criterion, model, epoch, args.output_path)
     elif args.operation == 'Plot':
         print('---- plotting ----')
         best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)

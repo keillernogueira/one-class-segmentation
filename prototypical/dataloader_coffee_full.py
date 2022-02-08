@@ -16,7 +16,7 @@ class DataLoaderCoffeeFull(data.Dataset):
     def __init__(self, mode, dataset, dataset_input_path, images, crop_size, stride_size,
                  statistics="own", mean=None, std=None, output_path=None):
         super().__init__()
-        assert mode in ['Train', 'Test']
+        assert mode in ['Train', 'Test', 'Full_Test']
 
         self.mode = mode
         self.dataset = dataset
@@ -56,8 +56,12 @@ class DataLoaderCoffeeFull(data.Dataset):
         return images, masks
 
     def make_dataset(self):
-        distrib = create_distrib(self.labels, self.crop_size, self.stride_size,
-                                 self.num_classes, self.dataset, return_all=False)
+        if self.mode == 'Train' or self.mode == 'Test':
+            distrib = create_distrib(self.labels, self.crop_size, self.stride_size,
+                                     self.num_classes, self.dataset, return_all=False)
+        else:
+            distrib = create_distrib(self.labels, self.crop_size, self.stride_size,
+                                     self.num_classes, self.dataset, return_all=True)
 
         return distrib
 

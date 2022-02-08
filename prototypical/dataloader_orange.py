@@ -6,6 +6,7 @@ from skimage import img_as_float
 
 import torch
 from torch.utils import data
+import torchvision.transforms as transforms
 
 from data_utils import create_distrib, split_train_test, \
     create_or_load_statistics, normalize_images, data_augmentation
@@ -13,12 +14,13 @@ from data_utils import create_distrib, split_train_test, \
 
 class DataLoaderOrange(data.Dataset):
 
-    def __init__(self, mode, dataset_path, crop_size, stride_size,
+    def __init__(self, mode, dataset, dataset_path, crop_size, stride_size,
                  statistics="own", mean=None, std=None, output_path=None):
         super().__init__()
         assert mode in ['Train', 'Test']
 
         self.mode = mode
+        self.dataset = dataset
         self.dataset_path = dataset_path
         self.crop_size = crop_size
         self.stride_size = stride_size
