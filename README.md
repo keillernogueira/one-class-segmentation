@@ -12,7 +12,8 @@
 - [ ] parar de otimizar o prototype a partir de um ponto
 - [ ] otimizar margin junto com a rede??
 - [ ] otimizar o prototype com base somente nas classes positivas??
-- [ ] 
+- [ ] treinar o prototype usando so a classe positiva e a rede com as duas classes???
+- [ ] treinar o negativo contra todas as positivas (primeiro validar que a loss consegue agrupar todas as positivas bem pertinho)
 
 ## Material interessante:
 
