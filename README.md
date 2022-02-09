@@ -9,12 +9,10 @@
 
 ## Atualizações possiveis:
 
-- [X] atualizar o mean ao longo do treino (main_track_mean.py)
-- [X] predizer com knn (main_knn.py)
-- [ ] usar somente as amostras positivas mais longe do mean
-- [ ] usar a tecnica que selecionar amostras mendeley 
-- [ ] testar prototype networks
-- [ ] testar o triplet loss sem o mean
+- [ ] parar de otimizar o prototype a partir de um ponto
+- [ ] otimizar margin junto com a rede??
+- [ ] otimizar o prototype com base somente nas classes positivas??
+- [ ] 
 
 ## Material interessante:
 

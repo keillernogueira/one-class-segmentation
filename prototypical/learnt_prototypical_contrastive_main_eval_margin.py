@@ -120,7 +120,7 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
     sys.stdout.flush()
 
 
-def test(test_loader, criterion, net, epoch):
+def test(test_loader, criterion, net, epoch, margin):
     # Setting network for evaluation mode.
     net.eval()
 
@@ -138,11 +138,7 @@ def test(test_loader, criterion, net, epoch):
             # Forwarding.
             outs = net(inps_c)
 
-            # pred = (-outs <= 0.999).int().detach().cpu().numpy()  # v1
-            if hasattr(criterion, 'pos_margin'):
-                pred = (-outs < criterion.pos_margin).int().detach().cpu().numpy().flatten()
-            else:
-                pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
+            pred = (-outs < margin).int().detach().cpu().numpy().flatten()
             labs = labs.flatten()
 
             if test_loader.dataset.dataset == 'Coffee_Full':
@@ -366,8 +362,9 @@ if __name__ == '__main__':
             train(train_dataloader, model, criterion, optimizer, epoch, args.output_path)
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
-                acc, nacc = test(test_dataloader, criterion, model, epoch)
-                save_best_models(model, optimizer, args.output_path, best_records, epoch, nacc)
+                for m in [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]:
+                    acc, nacc = test(test_dataloader, criterion, model, epoch, margin=m)
+                    save_best_models(model, optimizer, args.output_path, best_records, epoch, nacc)
             scheduler.step()
     elif args.operation == 'Test':
         print('---- testing ----')
