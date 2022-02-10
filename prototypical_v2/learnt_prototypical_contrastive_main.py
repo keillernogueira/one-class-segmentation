@@ -24,7 +24,6 @@ from network import FCNWideResNet50
 
 from feat_ext import general_feature_extractor
 from contrastive_loss import ContrastiveLoss
-from contrastive_loss_double_margin import ContrastiveLossDoubleMargin
 from learnt_prototypical import LearntPrototypes
 
 
@@ -138,13 +137,9 @@ def test(test_loader, criterion, net, epoch):
             # labs_c = Variable(labs).cuda()
 
             # Forwarding.
-            outs = net(inps_c)
+            outs, _ = net(inps_c)
 
-            # pred = (-outs <= 0.999).int().detach().cpu().numpy()  # v1
-            if hasattr(criterion, 'pos_margin'):
-                pred = (-outs < criterion.pos_margin).int().detach().cpu().numpy().flatten()
-            else:
-                pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
+            pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
             labs = labs.flatten()
 
             if test_loader.dataset.dataset == 'Coffee_Full':
@@ -196,10 +191,10 @@ def train(train_loader, net, criterion, optimizer, epoch, output):
         optimizer.zero_grad()
 
         # Forwarding.
-        outs = net(inps)
+        outs, embs = net(inps)
 
         # computing loss
-        loss = criterion(-outs, labs)
+        loss = criterion(-outs, embs, labs)
         # make_dot(loss).render("original", format="png")
 
         # Computing backpropagation.
@@ -281,12 +276,9 @@ if __name__ == '__main__':
     parser.add_argument('--epoch_num', type=int, default=50, help='Number of epochs')
 
     # specific parameters
-    parser.add_argument('--margin', type=float, default=1.0,
-                        help='Margin for the contrastive learning')
-    parser.add_argument('--pos_margin', type=float, default=None,
-                        help='Margin for the positive class of the contrastive learning')
+    parser.add_argument('--margin', type=float, default=1.0, help='Margin for the contrastive learning')
     parser.add_argument('--miner', type=str2bool, default=False,
-                        help='Miner hard samples and equalize number fo samples 1:1')
+                        help='Miner hard samples and equalize number of samples 1:1')
     args = parser.parse_args()
     print(sys.argv[0], args)
 
@@ -338,11 +330,7 @@ if __name__ == '__main__':
             raise NotImplementedError("Network " + args.model + " not implemented")
 
         # loss
-        if args.pos_margin is not None:
-            criterion = ContrastiveLossDoubleMargin(args.margin, args.pos_margin,
-                                                    args.miner, args.weights, ignore_index=2)
-        else:
-            criterion = ContrastiveLoss(args.margin, args.miner, args.weights, ignore_index=2)
+        criterion = ContrastiveLoss(args.margin, args.weights, ignore_index=2)
 
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
                                betas=(0.9, 0.99))
@@ -366,7 +354,7 @@ if __name__ == '__main__':
         print('---- training ----')
         for epoch in range(curr_epoch, args.epoch_num + 1):
             train(train_dataloader, model, criterion, optimizer, epoch, args.output_path)
-            if epoch % VAL_INTERVAL == 0:
+            if epoch % 100 == 0:
                 # Computing test.
                 acc, nacc = test(test_dataloader, criterion, model, epoch)
                 save_best_models(model, optimizer, args.output_path, best_records, epoch, nacc)

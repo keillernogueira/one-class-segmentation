@@ -2,7 +2,7 @@ import gc
 import sys
 import datetime
 import numpy as np
-from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.metrics import confusion_matrix
 
 import torch
 from torch import optim
@@ -10,9 +10,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
-from torchviz import make_dot
-
-from dataloader import DataLoader
+from dataloaders.dataloader import DataLoader
 from config import *
 from utils import *
 from network import FCNWideResNet50

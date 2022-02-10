@@ -1,4 +1,3 @@
-import gc
 import sys
 import datetime
 import numpy as np
@@ -12,15 +11,15 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
-from dataloader import DataLoader
-from dataloader_orange import DataLoaderOrange
-from dataloader_coffee import DataLoaderCoffee
-from dataloader_coffee_full import DataLoaderCoffeeFull
+from dataloaders.dataloader import DataLoader
+from dataloaders.dataloader_orange import DataLoaderOrange
+from dataloaders.dataloader_coffee import DataLoaderCoffee
+from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
 
 from config import *
 from utils import *
 from network import FCNWideResNet50
-from focal_loss import BinaryFocalLoss, FocalLoss, FocalLossV2
+from focal_loss import BinaryFocalLoss, FocalLossV2
 
 
 def test_full_map(test_loader, net, epoch, output_path):

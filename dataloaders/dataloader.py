@@ -9,14 +9,15 @@ import torch
 from torch.utils import data
 import torchvision.transforms as transforms
 
-from data_utils import create_distrib, create_or_load_statistics, normalize_images, data_augmentation
+from dataloaders.data_utils import create_distrib, create_or_load_statistics, normalize_images, create_distrib_knn
 
 
-class DataLoaderCoffeeFull(data.Dataset):
+class DataLoader(data.Dataset):
+
     def __init__(self, mode, dataset, dataset_input_path, images, crop_size, stride_size,
                  statistics="own", mean=None, std=None, output_path=None):
         super().__init__()
-        assert mode in ['Train', 'Test', 'Full_Test']
+        assert mode in ['Full_train', 'Train', 'Validation', 'Full_test', 'Plot', 'KNN']
 
         self.mode = mode
         self.dataset = dataset
@@ -26,7 +27,7 @@ class DataLoaderCoffeeFull(data.Dataset):
         self.stride_size = stride_size
 
         self.data, self.labels = self.load_images()
-        self.num_classes = len(np.unique(self.labels[0])) - 1  # -1 to remove class 2 which is the background
+        self.num_classes = len(np.unique(self.labels[0]))
 
         self.distrib = self.make_dataset()
         if statistics == "own" and mean is None and std is None:
@@ -46,24 +47,51 @@ class DataLoaderCoffeeFull(data.Dataset):
         images = []
         masks = []
         for img in self.images:
-            temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_input_path, img, 'image.tif')))
-            temp_mask = imageio.imread(os.path.join(self.dataset_input_path, img, 'mascara_bin_int.png'))
-            # print('dataloader 1', temp_mask.shape, np.bincount(temp_mask.flatten()))
-            images.append(np.rollaxis(temp_image, 0, 3))
+            temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_input_path, img + '_image.tif')))
+            temp_mask = imageio.imread(os.path.join(self.dataset_input_path, img + '_mask.tif')).astype(int)
+            images.append(temp_image[:, :, 0:3])
             masks.append(temp_mask)
 
-        # print('dataloader 2', np.asarray(images).shape, np.asarray(masks).shape)
         return images, masks
 
     def make_dataset(self):
-        if self.mode == 'Train' or self.mode == 'Test':
-            distrib = create_distrib(self.labels, self.crop_size, self.stride_size,
-                                     self.num_classes, self.dataset, return_all=False)
+        if self.mode == 'Train' or self.mode == 'Validation':
+            distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=False)
+        elif self.mode == 'Full_train' or self.mode == 'Full_test':
+            distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=True)
+        elif self.mode == 'KNN':
+            distrib = create_distrib_knn(self.labels, self.crop_size, self.stride_size, self.num_classes)
         else:
-            distrib = create_distrib(self.labels, self.crop_size, self.stride_size,
-                                     self.num_classes, self.dataset, return_all=True)
+            distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=False)
 
         return distrib
+
+    def data_augmentation(self, img, label):
+        rand_fliplr = np.random.random() > 0.50
+        rand_flipud = np.random.random() > 0.50
+        rand_rotate = np.random.random()
+
+        if rand_fliplr:
+            img = np.fliplr(img)
+            label = np.fliplr(label)
+        if rand_flipud:
+            img = np.flipud(img)
+            label = np.flipud(label)
+
+        if rand_rotate < 0.25:
+            img = transform.rotate(img, 270, order=1, preserve_range=True)
+            label = transform.rotate(label, 270, order=0, preserve_range=True)
+        elif rand_rotate < 0.50:
+            img = transform.rotate(img, 180, order=1, preserve_range=True)
+            label = transform.rotate(label, 180, order=0, preserve_range=True)
+        elif rand_rotate < 0.75:
+            img = transform.rotate(img, 90, order=1, preserve_range=True)
+            label = transform.rotate(label, 90, order=0, preserve_range=True)
+
+        img = img.astype(np.float32)
+        label = label.astype(np.int64)
+
+        return img, label
 
     def __getitem__(self, index):
         cur_map, cur_x, cur_y = self.distrib[index][0], self.distrib[index][1], self.distrib[index][2]
@@ -75,7 +103,7 @@ class DataLoaderCoffeeFull(data.Dataset):
         normalize_images(img, self.mean, self.std)
 
         if self.mode == 'Train':
-            img, label = data_augmentation(img, label)
+            img, label = self.data_augmentation(img, label)
 
         img = np.transpose(img, (2, 0, 1))
 

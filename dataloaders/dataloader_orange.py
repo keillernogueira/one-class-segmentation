@@ -7,12 +7,13 @@ from skimage import img_as_float
 import torch
 from torch.utils import data
 
-from data_utils import create_distrib, split_train_test, \
+from dataloaders.data_utils import create_distrib, split_train_test, \
     create_or_load_statistics, normalize_images, data_augmentation
 
 
-class DataLoaderCoffee(data.Dataset):
-    def __init__(self, mode, dataset, dataset_path, images, crop_size, stride_size,
+class DataLoaderOrange(data.Dataset):
+
+    def __init__(self, mode, dataset, dataset_path, crop_size, stride_size,
                  statistics="own", mean=None, std=None, output_path=None):
         super().__init__()
         assert mode in ['Train', 'Test']
@@ -20,7 +21,6 @@ class DataLoaderCoffee(data.Dataset):
         self.mode = mode
         self.dataset = dataset
         self.dataset_path = dataset_path
-        self.images = images
         self.crop_size = crop_size
         self.stride_size = stride_size
 
@@ -31,7 +31,7 @@ class DataLoaderCoffee(data.Dataset):
         self.num_classes = len(np.unique(self.labels[0]))
 
         self.distrib = self.make_dataset()
-        print('self.distrib ', len(self.distrib))
+        print(self.mode + ' distrib = ', len(self.distrib))
 
         if statistics == "own" and mean is None and std is None:
             self.mean, self.std = create_or_load_statistics(self.data, self.distrib, self.crop_size,
@@ -44,21 +44,36 @@ class DataLoaderCoffee(data.Dataset):
             self.std = np.asarray([0.229, 0.224, 0.225])
 
     def load_images(self):
+        first = True
         images = []
         masks = []
-        for img in self.images:
-            temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_path, 'montesanto' + img + '.jpeg')))
-            temp_mask = imageio.imread(os.path.join(self.dataset_path, 'montesanto' + img + '_mask.jpeg')).astype(int)
-            images.append(temp_image)
-            temp_mask[np.where(temp_mask < 128)] = 0
-            temp_mask[np.where(temp_mask >= 128)] = 1
-            masks.append(temp_mask)
+
+        image = None
+        for f in os.listdir(self.dataset_path):
+            if os.path.isfile(os.path.join(self.dataset_path, f)):
+                temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_path, f)))
+                if first is True:
+                    image = np.expand_dims(temp_image, axis=2)
+                    first = False
+                else:
+                    image = np.concatenate((image, np.expand_dims(temp_image, axis=2)), axis=2)
+
+        # remove NO_DATA values
+        image[np.where(image <= -100)] = 0.0
+
+        images.append(image)
+        masks.append(imageio.imread(os.path.join(self.dataset_path, 'mask', 'sequoia_raster.tif')))
 
         return images, masks
 
     def make_dataset(self):
-        return create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes,
-                              self.dataset, return_all=True)
+        all_distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=False)
+        train_distrib, test_distrib = split_train_test(all_distrib, limit=5050)
+
+        if self.mode == 'Train':
+            return train_distrib
+        else:
+            return test_distrib
 
     def __getitem__(self, index):
         cur_map, cur_x, cur_y = self.distrib[index][0], self.distrib[index][1], self.distrib[index][2]

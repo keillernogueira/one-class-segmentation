@@ -8,7 +8,7 @@ import torch
 from torch import optim
 from torch.autograd import Variable
 
-from dataloader import DataLoader
+from dataloaders.dataloader import DataLoader
 from config import *
 from utils import *
 from network import FCNWideResNet50

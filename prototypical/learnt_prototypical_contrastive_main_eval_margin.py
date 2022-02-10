@@ -7,14 +7,13 @@ from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_ka
 import scipy.stats as stats
 
 import torch
-import torch.nn as nn
 from torch import optim
 from torch.autograd import Variable
 
-from dataloader import DataLoader
-from dataloader_orange import DataLoaderOrange
-from dataloader_coffee import DataLoaderCoffee
-from dataloader_coffee_full import DataLoaderCoffeeFull
+from dataloaders.dataloader import DataLoader
+from dataloaders.dataloader_orange import DataLoaderOrange
+from dataloaders.dataloader_coffee import DataLoaderCoffee
+from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
 
 from config import *
 from utils import *
