@@ -24,16 +24,16 @@ class ContrastiveLoss(nn.Module):
         if self.has_miner:
             data, labels, _ = self.miner(data, labels)
 
-        # poss = torch.gather(data.flatten(), 0, labels.flatten().nonzero().squeeze())
+        poss = torch.gather(data.flatten(), 0, labels.flatten().nonzero().squeeze())
         # print('pos ', torch.min(poss).data.item(), torch.mean(poss).data.item(), torch.max(poss).data.item())
-        # negs = torch.gather(data.flatten(), 0, (1 - labels).flatten().nonzero().squeeze())
+        negs = torch.gather(data.flatten(), 0, (1 - labels).flatten().nonzero().squeeze())
         # print('negs', torch.min(negs).data.item(), torch.mean(negs).data.item(), torch.max(negs).data.item())
 
-        # p = torch.mean(labels * torch.pow(data, 2))
-        # n = torch.mean((1 - labels) * torch.pow(torch.clamp(self.margin - data, min=0.0), 2))
-        # a = torch.mean(labels * torch.pow(data, 2) +
-        #                (1 - labels) * torch.pow(torch.clamp(self.margin - data, min=0.0), 2))
-        # print('loss', p, n, a)
+        p = torch.mean(labels * torch.pow(data, 2))
+        n = torch.mean((1 - labels) * torch.pow(torch.clamp(self.margin - data, min=0.0), 2))
+        a = torch.mean(labels * torch.pow(data, 2) +
+                       (1 - labels) * torch.pow(torch.clamp(self.margin - data, min=0.0), 2))
+        print('loss', torch.mean(poss).data.item(), torch.mean(negs).data.item(), p, n, a)
         loss_contrastive = torch.mean(self.weights[1] * labels * torch.pow(data, 2) +
                                       self.weights[0] * (1 - labels) *
                                       torch.pow(torch.clamp(self.margin - data, min=0.0), 2))
@@ -55,7 +55,7 @@ class ContrastiveLoss(nn.Module):
             else:
                 pos_hard = all_pos_values  # get all positive samples
                 # with the line below commented out, it was called v2
-                neg_hard, _ = torch.topk(neg_hard, pos_hard.shape[0], largest=False)  # this is v1
+                # neg_hard, _ = torch.topk(neg_hard, pos_hard.shape[0], largest=False)  # this is v1
         else:
             total = torch.bincount(labels)[0] + torch.bincount(labels)[1]
             weights = torch.FloatTensor([1.0 + torch.true_divide(torch.bincount(labels)[1], total),

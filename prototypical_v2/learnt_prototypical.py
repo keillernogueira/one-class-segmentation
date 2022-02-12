@@ -40,4 +40,4 @@ class LearntPrototypes(nn.Module):
 
         dists = dists.view(b, h * w, self.n_prototypes).transpose(1, 2).contiguous().view(b, self.n_prototypes, h, w)
 
-        return -dists, embeddings
+        return -dists

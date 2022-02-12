@@ -1,5 +1,6 @@
 import gc
 import sys
+import os
 import datetime
 import imageio
 import numpy as np
@@ -9,6 +10,8 @@ import scipy.stats as stats
 import torch
 from torch import optim
 from torch.autograd import Variable
+
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 from dataloaders.dataloader import DataLoader
 from dataloaders.dataloader_orange import DataLoaderOrange
@@ -158,6 +161,7 @@ def test(test_loader, criterion, net, epoch, margin):
 
     print("---- Validation/Test -- Epoch " + str(epoch) +
           " -- Time " + str(datetime.datetime.now().time()) +
+          " -- Margin= " + str(margin) +
           " Overall Accuracy= " + "{:.4f}".format(acc) +
           " Normalized Accuracy= " + "{:.4f}".format(nacc) +
           " F1 Score= " + "{:.4f}".format(f1_s) +
@@ -361,7 +365,7 @@ if __name__ == '__main__':
             train(train_dataloader, model, criterion, optimizer, epoch, args.output_path)
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
-                for m in [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]:
+                for m in [0.5, 1.0, 1.5, 2.0]:
                     acc, nacc = test(test_dataloader, criterion, model, epoch, margin=m)
                     save_best_models(model, optimizer, args.output_path, best_records, epoch, nacc)
             scheduler.step()

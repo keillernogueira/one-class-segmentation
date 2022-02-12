@@ -8,6 +8,7 @@ from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_ka
 import scipy.stats as stats
 
 import torch
+import torch.nn as nn
 from torch import optim
 from torch.autograd import Variable
 
@@ -137,9 +138,9 @@ def test(test_loader, criterion, net, epoch):
             # labs_c = Variable(labs).cuda()
 
             # Forwarding.
-            outs, _ = net(inps_c)
+            outs = net(inps_c)
 
-            pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
+            pred = outs.cpu().data.numpy().argmax(axis=1).flatten()
             labs = labs.flatten()
 
             if test_loader.dataset.dataset == 'Coffee_Full':
@@ -191,10 +192,10 @@ def train(train_loader, net, criterion, optimizer, epoch, output):
         optimizer.zero_grad()
 
         # Forwarding.
-        outs, embs = net(inps)
+        outs = net(inps)
 
         # computing loss
-        loss = criterion(-outs, embs, labs)
+        loss = criterion(outs, labs)
         # make_dot(loss).render("original", format="png")
 
         # Computing backpropagation.
@@ -206,12 +207,9 @@ def train(train_loader, net, criterion, optimizer, epoch, output):
 
         # Printing.
         if (i + 1) % DISPLAY_STEP == 0:
-            # pred = (-outs <= 0.999).int().detach().cpu().numpy()  # v1
-            if hasattr(criterion, 'pos_margin'):
-                pred = (-outs < criterion.pos_margin).int().detach().cpu().numpy().flatten()
-            else:
-                pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
+            pred = outs.cpu().data.numpy().argmax(axis=1)
             labels = labels.flatten()
+            pred = pred.flatten()
 
             if train_loader.dataset.dataset == 'Coffee_Full':
                 # filtering out pixels
@@ -325,12 +323,13 @@ if __name__ == '__main__':
         # network
         if args.model == 'WideResNet':
             model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True, classif=False),
-                                     squared=False, n_prototypes=1, embedding_dim=2560)
+                                     squared=False, n_prototypes=2, embedding_dim=2560)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 
         # loss
-        criterion = ContrastiveLoss(args.margin, args.weights, ignore_index=2)
+        # criterion = ContrastiveLoss(args.margin, args.weights, ignore_index=2)
+        criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor(args.weights), ignore_index=2).cuda()
 
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
                                betas=(0.9, 0.99))
@@ -354,7 +353,7 @@ if __name__ == '__main__':
         print('---- training ----')
         for epoch in range(curr_epoch, args.epoch_num + 1):
             train(train_dataloader, model, criterion, optimizer, epoch, args.output_path)
-            if epoch % 100 == 0:
+            if epoch % VAL_INTERVAL == 0:
                 # Computing test.
                 acc, nacc = test(test_dataloader, criterion, model, epoch)
                 save_best_models(model, optimizer, args.output_path, best_records, epoch, nacc)
