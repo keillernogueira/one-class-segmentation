@@ -10,6 +10,7 @@ def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River',
     instances = [[[] for i in range(0)] for i in range(num_classes)]
     counter = num_classes * [0]
     binc = np.zeros((num_classes, num_classes))  # cumulative bincount for each class
+    gen_classes = []
 
     for k in range(0, len(labels)):
         w, h = labels[k].shape
@@ -38,30 +39,36 @@ def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River',
                 if dataset == 'Coffee':
                     if count[1] >= count[0]:
                         instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        gen_classes.append(1)
                         counter[1] += 1
                         binc[1] += count
                     else:
                         instances[0].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        gen_classes.append(0)
                         counter[0] += 1
                         binc[0] += count
                 elif dataset == 'Coffee_Full':
                     if len(count) == 2:  # there is only coffee and non-coffee
                         if count[1] != 0:  # there is at least one coffee pixel
                             instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                            gen_classes.append(1)
                             counter[1] += 1
                             binc[1] += count
                         else:
                             instances[0].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                            gen_classes.append(0)
                             counter[0] += 1
                             binc[0] += count
                     else:  # there is background
                         if count[2] <= count[0] + count[1]:
                             if count[1] != 0:
                                 instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                                gen_classes.append(1)
                                 counter[1] += 1
                                 binc[1] += count[0:2]
                             else:
                                 instances[0].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                                gen_classes.append(0)
                                 counter[0] += 1
                                 binc[0] += count[0:2]
                 else:
@@ -69,10 +76,12 @@ def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River',
                     if count[1] != 0:
                         # if count[1] > percentage_pos_class * count[0]:
                         instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        gen_classes.append(1)
                         counter[1] += 1
                         binc[1] += count
                     else:
                         instances[0].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
+                        gen_classes.append(0)
                         counter[0] += 1
                         binc[0] += count
 
@@ -80,9 +89,9 @@ def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River',
         print('Class ' + str(i) + ' has length ' + str(counter[i]) + ' - ' + np.array_str(binc[i]).replace("\n", ""))
 
     if return_all:
-        return np.asarray(instances[0] + instances[1])
+        return np.asarray(instances[0] + instances[1]), np.asarray(gen_classes)
     else:
-        return np.asarray(instances[1])
+        return np.asarray(instances[1]), np.asarray(gen_classes)
 
 
 def create_distrib_knn(labels, crop_size, stride_size, num_classes):
@@ -138,7 +147,7 @@ def create_distrib_knn(labels, crop_size, stride_size, num_classes):
 
     print('Number samples ' + str(counter) + ' - ' + np.array_str(binc).replace("\n", ""))
 
-    return np.asarray(instances)
+    return np.asarray(instances), np.ones(len(instances))
 
 
 def split_train_test(data_distribution, limit=5050):

@@ -47,7 +47,7 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, nacc, num
         best_records.append({'epoch': epoch, 'nacc': nacc, 'track_mean': track_mean})
 
         torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
-        torch.save(optimizer.state_dict(), os.path.join(output_path, 'opt_' + str(epoch) + '.pth'))
+        # torch.save(optimizer.state_dict(), os.path.join(output_path, 'opt_' + str(epoch) + '.pth'))
     else:
         # find min saved acc
         min_index = 0
@@ -60,14 +60,14 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, nacc, num
             min_step = str(best_records[min_index]['epoch'])
 
             os.remove(os.path.join(output_path, 'model_' + min_step + '.pth'))
-            os.remove(os.path.join(output_path, 'opt_' + min_step + '.pth'))
+            # os.remove(os.path.join(output_path, 'opt_' + min_step + '.pth'))
 
             # replace min value with current
             best_records[min_index] = {'epoch': epoch, 'nacc': nacc, 'track_mean': track_mean}
 
             # save current model
             torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
-            torch.save(optimizer.state_dict(), os.path.join(output_path, 'opt_' + str(epoch) + '.pth'))
+            # torch.save(optimizer.state_dict(), os.path.join(output_path, 'opt_' + str(epoch) + '.pth'))
     np.save(os.path.join(output_path, 'best_records.npy'), best_records)
 
 

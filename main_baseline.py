@@ -172,6 +172,10 @@ def train(train_loader, net, criterion, optimizer, epoch, loss_type):
         # Obtaining buzz sounds and labels
         inps, labels = data[0], data[1]
 
+        # if there is only one class
+        if len(np.bincount(labels.flatten())) == 1:
+            continue
+
         # Casting to cuda variables.
         inps = Variable(inps).cuda()
         labs = Variable(labels).cuda()
@@ -262,6 +266,8 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', type=float, default=0.005, help='Weight decay')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--epoch_num', type=int, default=50, help='Number of epochs')
+
+    parser.add_argument('--weight_sampler', type=str2bool, default=False, help='Use weight sampler for loader?')
     args = parser.parse_args()
     print(args)
 
@@ -269,8 +275,8 @@ if __name__ == '__main__':
     if args.operation == 'Train':
         if args.dataset == 'River':
             print('---- training data ----')
-            train_dataset = DataLoader('Train', args.dataset, args.dataset_path, args.training_images, args.crop_size,
-                                       args.stride_crop, output_path=args.output_path)
+            train_dataset = DataLoader('Full_train', args.dataset, args.dataset_path, args.training_images,
+                                       args.crop_size, args.stride_crop, output_path=args.output_path)
             print('---- testing data ----')
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
                                       args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
@@ -300,8 +306,17 @@ if __name__ == '__main__':
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
 
-        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                       shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+        if args.weight_sampler is False:
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+        else:
+            class_loader_weights = 1. / np.bincount(train_dataset.gen_classes)
+            samples_weights = class_loader_weights[train_dataset.gen_classes]
+            sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weights, len(samples_weights),
+                                                                     replacement=True)
+            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                           num_workers=NUM_WORKERS, drop_last=False, sampler=sampler)
+
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
 

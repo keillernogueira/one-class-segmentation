@@ -27,7 +27,9 @@ class DataLoaderCoffeeFull(data.Dataset):
         self.data, self.labels = self.load_images()
         self.num_classes = len(np.unique(self.labels[0])) - 1  # -1 to remove class 2 which is the background
 
-        self.distrib = self.make_dataset()
+        self.distrib, self.gen_classes = self.make_dataset()
+        print('check check', len(self.distrib), len(self.gen_classes))
+
         if statistics == "own" and mean is None and std is None:
             self.mean, self.std = create_or_load_statistics(self.data, self.distrib, self.crop_size,
                                                             self.stride_size, output_path)
@@ -38,7 +40,7 @@ class DataLoaderCoffeeFull(data.Dataset):
             self.mean = np.asarray([0.485, 0.456, 0.406])
             self.std = np.asarray([0.229, 0.224, 0.225])
 
-        if len(self.data) == 0:
+        if len(self.distrib) == 0:
             raise RuntimeError('Found 0 samples, please check the data set path')
 
     def load_images(self):
@@ -56,13 +58,13 @@ class DataLoaderCoffeeFull(data.Dataset):
 
     def make_dataset(self):
         if self.mode == 'Train' or self.mode == 'Test':
-            distrib = create_distrib(self.labels, self.crop_size, self.stride_size,
-                                     self.num_classes, self.dataset, return_all=False)
+            distrib, gen_classes = create_distrib(self.labels, self.crop_size, self.stride_size,
+                                                  self.num_classes, self.dataset, return_all=False)
         else:
-            distrib = create_distrib(self.labels, self.crop_size, self.stride_size,
-                                     self.num_classes, self.dataset, return_all=True)
+            distrib, gen_classes = create_distrib(self.labels, self.crop_size, self.stride_size,
+                                                  self.num_classes, self.dataset, return_all=True)
 
-        return distrib
+        return distrib, gen_classes
 
     def __getitem__(self, index):
         cur_map, cur_x, cur_y = self.distrib[index][0], self.distrib[index][1], self.distrib[index][2]

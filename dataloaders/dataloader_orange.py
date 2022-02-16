@@ -67,7 +67,8 @@ class DataLoaderOrange(data.Dataset):
         return images, masks
 
     def make_dataset(self):
-        all_distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=False)
+        all_distrib, _ = create_distrib(self.labels, self.crop_size, self.stride_size,
+                                        self.num_classes, return_all=False)
         train_distrib, test_distrib = split_train_test(all_distrib, limit=5050)
 
         if self.mode == 'Train':

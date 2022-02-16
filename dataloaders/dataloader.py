@@ -7,9 +7,9 @@ from skimage import transform
 
 import torch
 from torch.utils import data
-import torchvision.transforms as transforms
 
-from dataloaders.data_utils import create_distrib, create_or_load_statistics, normalize_images, create_distrib_knn
+from dataloaders.data_utils import create_distrib, create_or_load_statistics, \
+    normalize_images, create_distrib_knn, data_augmentation
 
 
 class DataLoader(data.Dataset):
@@ -29,7 +29,8 @@ class DataLoader(data.Dataset):
         self.data, self.labels = self.load_images()
         self.num_classes = len(np.unique(self.labels[0]))
 
-        self.distrib = self.make_dataset()
+        self.distrib, self.gen_classes = self.make_dataset()
+
         if statistics == "own" and mean is None and std is None:
             self.mean, self.std = create_or_load_statistics(self.data, self.distrib, self.crop_size,
                                                             self.stride_size, output_path)
@@ -40,7 +41,7 @@ class DataLoader(data.Dataset):
             self.mean = np.asarray([0.485, 0.456, 0.406])
             self.std = np.asarray([0.229, 0.224, 0.225])
 
-        if len(self.data) == 0:
+        if len(self.distrib) == 0:
             raise RuntimeError('Found 0 samples, please check the data set path')
 
     def load_images(self):
@@ -56,42 +57,18 @@ class DataLoader(data.Dataset):
 
     def make_dataset(self):
         if self.mode == 'Train' or self.mode == 'Validation':
-            distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=False)
+            distrib, gen_classes = create_distrib(self.labels, self.crop_size, self.stride_size,
+                                                  self.num_classes, return_all=False)
         elif self.mode == 'Full_train' or self.mode == 'Full_test':
-            distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=True)
+            distrib, gen_classes = create_distrib(self.labels, self.crop_size, self.stride_size,
+                                                  self.num_classes, return_all=True)
         elif self.mode == 'KNN':
-            distrib = create_distrib_knn(self.labels, self.crop_size, self.stride_size, self.num_classes)
+            distrib, gen_classes = create_distrib_knn(self.labels, self.crop_size, self.stride_size, self.num_classes)
         else:
-            distrib = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes, return_all=False)
+            distrib, gen_classes = create_distrib(self.labels, self.crop_size, self.stride_size,
+                                                  self.num_classes, return_all=False)
 
-        return distrib
-
-    def data_augmentation(self, img, label):
-        rand_fliplr = np.random.random() > 0.50
-        rand_flipud = np.random.random() > 0.50
-        rand_rotate = np.random.random()
-
-        if rand_fliplr:
-            img = np.fliplr(img)
-            label = np.fliplr(label)
-        if rand_flipud:
-            img = np.flipud(img)
-            label = np.flipud(label)
-
-        if rand_rotate < 0.25:
-            img = transform.rotate(img, 270, order=1, preserve_range=True)
-            label = transform.rotate(label, 270, order=0, preserve_range=True)
-        elif rand_rotate < 0.50:
-            img = transform.rotate(img, 180, order=1, preserve_range=True)
-            label = transform.rotate(label, 180, order=0, preserve_range=True)
-        elif rand_rotate < 0.75:
-            img = transform.rotate(img, 90, order=1, preserve_range=True)
-            label = transform.rotate(label, 90, order=0, preserve_range=True)
-
-        img = img.astype(np.float32)
-        label = label.astype(np.int64)
-
-        return img, label
+        return distrib, gen_classes
 
     def __getitem__(self, index):
         cur_map, cur_x, cur_y = self.distrib[index][0], self.distrib[index][1], self.distrib[index][2]
@@ -103,7 +80,7 @@ class DataLoader(data.Dataset):
         normalize_images(img, self.mean, self.std)
 
         if self.mode == 'Train':
-            img, label = self.data_augmentation(img, label)
+            img, label = data_augmentation(img, label)
 
         img = np.transpose(img, (2, 0, 1))
 

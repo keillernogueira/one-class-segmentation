@@ -57,8 +57,9 @@ class DataLoaderCoffee(data.Dataset):
         return images, masks
 
     def make_dataset(self):
-        return create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes,
-                              self.dataset, return_all=True)
+        distrib, _ = create_distrib(self.labels, self.crop_size, self.stride_size, self.num_classes,
+                                    self.dataset, return_all=True)
+        return distrib
 
     def __getitem__(self, index):
         cur_map, cur_x, cur_y = self.distrib[index][0], self.distrib[index][1], self.distrib[index][2]
