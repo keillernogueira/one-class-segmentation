@@ -157,6 +157,7 @@ def test(test_loader, criterion, net, epoch):
 
     acc = (track_cm[0][0] + track_cm[1][1])/np.sum(track_cm)
     f1_s = f1_with_cm(track_cm)
+    kappa = kappa_with_cm(track_cm)
 
     _sum = 0.0
     for k in range(len(track_cm)):
@@ -168,12 +169,13 @@ def test(test_loader, criterion, net, epoch):
           " Overall Accuracy= " + "{:.4f}".format(acc) +
           " Normalized Accuracy= " + "{:.4f}".format(nacc) +
           " F1 Score= " + "{:.4f}".format(f1_s) +
+          " Kappa= " + "{:.4f}".format(kappa) +
           " Confusion Matrix= " + np.array_str(track_cm).replace("\n", "")
           )
 
     sys.stdout.flush()
 
-    return acc, nacc
+    return acc, nacc, f1_s, kappa, track_cm
 
 
 def train(train_loader, net, criterion, optimizer, epoch, output):
@@ -382,8 +384,9 @@ if __name__ == '__main__':
             train(train_dataloader, model, criterion, optimizer, epoch, args.output_path)
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
-                acc, nacc = test(test_dataloader, criterion, model, epoch)
-                save_best_models(model, optimizer, args.output_path, best_records, epoch, nacc)
+                # acc, nacc, f1_s, kappa, track_cm
+                acc, nacc, f1_s, kappa, _ = test(test_dataloader, criterion, model, epoch)
+                save_best_models(model, optimizer, args.output_path, best_records, epoch, kappa)
             scheduler.step()
     elif args.operation == 'Test':
         print('---- testing ----')

@@ -42,9 +42,9 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def save_best_models(net, optimizer, output_path, best_records, epoch, nacc, num_saves=1, track_mean=None):
+def save_best_models(net, optimizer, output_path, best_records, epoch, kappa, num_saves=1, track_mean=None):
     if len(best_records) < num_saves:
-        best_records.append({'epoch': epoch, 'nacc': nacc, 'track_mean': track_mean})
+        best_records.append({'epoch': epoch, 'kappa': kappa, 'track_mean': track_mean})
 
         torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
         # torch.save(optimizer.state_dict(), os.path.join(output_path, 'opt_' + str(epoch) + '.pth'))
@@ -52,10 +52,10 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, nacc, num
         # find min saved acc
         min_index = 0
         for i, r in enumerate(best_records):
-            if best_records[min_index]['nacc'] > best_records[i]['nacc']:
+            if best_records[min_index]['kappa'] > best_records[i]['kappa']:
                 min_index = i
         # check if currect acc is greater than min saved acc
-        if nacc > best_records[min_index]['nacc']:
+        if kappa > best_records[min_index]['kappa']:
             # if it is, delete previous files
             min_step = str(best_records[min_index]['epoch'])
 
@@ -63,7 +63,7 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, nacc, num
             # os.remove(os.path.join(output_path, 'opt_' + min_step + '.pth'))
 
             # replace min value with current
-            best_records[min_index] = {'epoch': epoch, 'nacc': nacc, 'track_mean': track_mean}
+            best_records[min_index] = {'epoch': epoch, 'kappa': kappa, 'track_mean': track_mean}
 
             # save current model
             torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
@@ -82,6 +82,18 @@ def project_data(data, labels, save_name, pca_n_components=50):
                     palette=sns.color_palette("hls", 2), legend="full", alpha=0.3)
     # plt.show()
     plt.savefig(save_name)
+
+
+def kappa_with_cm(conf_matrix):
+    acc = 0
+    marginal = 0
+    total = float(np.sum(conf_matrix))
+    for i in range(len(conf_matrix)):
+        acc += conf_matrix[i][i]
+        marginal += np.sum(conf_matrix, 0)[i] * np.sum(conf_matrix, 1)[i]
+
+    kappa = (total * acc - marginal) / (total * total - marginal)
+    return kappa
 
 
 def f1_with_cm(conf_matrix):
