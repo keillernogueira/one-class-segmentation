@@ -25,9 +25,8 @@ class LearntPrototypes(nn.Module):
         self.dist = dist
 
     def forward(self, data):
-        _, fv2, fv4 = self.model(data)
+        _, embeddings = self.model(data)
 
-        embeddings = torch.cat([fv2, fv4], 1)
         b, c, h, w = embeddings.shape
         embeddings = embeddings.view(b, c, h * w).transpose(1, 2).contiguous().view(b * h * w, c)
 

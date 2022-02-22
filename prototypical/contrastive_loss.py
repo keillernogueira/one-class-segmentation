@@ -22,19 +22,19 @@ class ContrastiveLoss(nn.Module):
         data = data[coord]
 
         if self.has_miner:
-            data, labels, _ = self.miner_v3(data, labels)
+            data, labels, self.weights = self.miner_v3(data, labels)
 
-        poss = torch.gather(data.flatten(), 0, labels.flatten().nonzero().squeeze())
+        # poss = torch.gather(data.flatten(), 0, labels.flatten().nonzero().squeeze())
         # print('pos ', torch.min(poss).data.item(), torch.mean(poss).data.item(), torch.max(poss).data.item())
-        negs = torch.gather(data.flatten(), 0, (1 - labels).flatten().nonzero().squeeze())
+        # negs = torch.gather(data.flatten(), 0, (1 - labels).flatten().nonzero().squeeze())
         # print('negs', torch.min(negs).data.item(), torch.mean(negs).data.item(), torch.max(negs).data.item())
 
-        p = torch.mean(labels * torch.pow(data, 2))
-        n = torch.mean((1 - labels) * torch.pow(torch.clamp(self.margin - data, min=0.0), 2))
-        a = torch.mean(labels * torch.pow(data, 2) +
-                       (1 - labels) * torch.pow(torch.clamp(self.margin - data, min=0.0), 2))
-        print('loss', torch.mean(poss).data.item(), torch.mean(negs).data.item(), p.data.item(),
-              n.data.item(), a.data.item())
+        # p = torch.mean(labels * torch.pow(data, 2))
+        # n = torch.mean((1 - labels) * torch.pow(torch.clamp(self.margin - data, min=0.0), 2))
+        # a = torch.mean(labels * torch.pow(data, 2) +
+        #                (1 - labels) * torch.pow(torch.clamp(self.margin - data, min=0.0), 2))
+        # print('loss', torch.mean(poss).data.item(), torch.mean(negs).data.item(), p.data.item(),
+        #       n.data.item(), a.data.item())
         loss_contrastive = torch.mean(self.weights[1] * labels * torch.pow(data, 2) +
                                       self.weights[0] * (1 - labels) *
                                       torch.pow(torch.clamp(self.margin - data, min=0.0), 2))

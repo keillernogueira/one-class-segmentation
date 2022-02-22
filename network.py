@@ -29,15 +29,15 @@ class FCNWideResNet50(nn.Module):
                 wideresnet.relu,
                 wideresnet.maxpool
             )
-        self.layer1 = wideresnet.layer1
-        self.layer2 = wideresnet.layer2
-        self.layer3 = wideresnet.layer3
-        self.layer4 = wideresnet.layer4
+        self.layer1 = wideresnet.layer1  # output feat = 256
+        self.layer2 = wideresnet.layer2  # output feat = 512
+        self.layer3 = wideresnet.layer3  # output feat = 1024
+        self.layer4 = wideresnet.layer4  # output feat = 2048
 
         if self.classif:
             if self.skip:
                 self.classifier1 = nn.Sequential(
-                    nn.Conv2d(2048 + 256, 128, kernel_size=3, padding=1),
+                    nn.Conv2d(2048 + 512, 128, kernel_size=3, padding=1),
                     nn.BatchNorm2d(128),
                     nn.ReLU(),
                     nn.Dropout2d(0.5),
@@ -65,7 +65,7 @@ class FCNWideResNet50(nn.Module):
             fv2 = self.layer2(fv1)
             fv3 = self.layer3(fv2)
             fv4 = self.layer4(fv3)
-            fv_final = torch.cat([F.interpolate(fv1, x.size()[2:], mode='bilinear', align_corners=False),
+            fv_final = torch.cat([F.interpolate(fv2, x.size()[2:], mode='bilinear', align_corners=False),
                                   F.interpolate(fv4, x.size()[2:], mode='bilinear', align_corners=False)], 1)
         else:
             # Forward on FCN without Skip Connections.
@@ -81,8 +81,8 @@ class FCNWideResNet50(nn.Module):
             classif1 = self.classifier1(fv_final)
             output = self.final(classif1)
 
-        return (output, F.interpolate(fv2, x.size()[2:], mode='bilinear', align_corners=False),
-                F.interpolate(fv4, x.size()[2:], mode='bilinear', align_corners=False))
+        return output, torch.cat([F.interpolate(fv2, x.size()[2:], mode='bilinear', align_corners=False),
+                                  F.interpolate(fv4, x.size()[2:], mode='bilinear', align_corners=False)], 1)
 
 
 class FCNWideResNet50Decoupled(nn.Module):

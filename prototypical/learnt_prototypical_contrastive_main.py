@@ -21,6 +21,7 @@ from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
 from config import *
 from utils import *
 from network import FCNWideResNet50
+from efficientnet import FCNEfficientNetB0
 
 from feat_ext import general_feature_extractor
 from contrastive_loss import ContrastiveLoss
@@ -277,7 +278,7 @@ if __name__ == '__main__':
 
     # model options
     parser.add_argument('--model', type=str, required=True, default=None,
-                        help='Model to be used.', choices=['WideResNet'])
+                        help='Model to be used.', choices=['WideResNet', 'EfficientNetB0'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
                         help='Path to a trained model that can be load and used for inference.')
     parser.add_argument('--weights', type=float, nargs='+', default=[1.0, 1.0], help='Weight Loss.')
@@ -350,6 +351,9 @@ if __name__ == '__main__':
         if args.model == 'WideResNet':
             model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True, classif=False),
                                      squared=False, n_prototypes=1, embedding_dim=2560)
+        elif args.model == 'EfficientNetB0':
+            model = LearntPrototypes(FCNEfficientNetB0(train_dataset.num_classes, pretrained=True, classif=False),
+                                     squared=False, n_prototypes=1, embedding_dim=2096)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 

@@ -24,7 +24,7 @@ class ContrastiveLossDoubleMargin(nn.Module):
         data = data[coord]
 
         if self.has_miner:
-            data, labels = self.miner(data, labels)
+            data, labels, self.weights = self.miner(data, labels)
 
         # poss = torch.gather(data.flatten(), 0, labels.flatten().nonzero().squeeze())
         # negs = torch.gather(data.flatten(), 0, (1 - labels).flatten().nonzero().squeeze())
@@ -48,20 +48,23 @@ class ContrastiveLossDoubleMargin(nn.Module):
 
         # get all **hard** samples of the negative class with dist < margin
         neg_hard = all_neg_values[all_neg_values < self.margin]
-        # get all **hard** samples of the negative class with dist <= margin
+        # get all **hard** samples of the positive class with dist > margin
         pos_hard = all_pos_values[all_pos_values > self.pos_margin]
 
-        # print('hards shape', neg_hard.shape, pos_hard.shape)
-
         # if neg_hard.shape[0] != 0 and pos_hard.shape[0] != 0:
-        #     if pos_hard.shape >= neg_hard.shape:
+        #     if pos_hard.shape > neg_hard.shape:
         #         # get the same number of **hard** samples of the positive class
         #         pos_hard, _ = torch.topk(all_pos_values, neg_hard.shape[0], largest=True)
         #     else:
         #         neg_hard, _ = torch.topk(neg_hard, pos_hard.shape[0], largest=False)
 
-        # print('final hards shape', neg_hard.shape, pos_hard.shape)
         neg_labels = torch.zeros(neg_hard.shape, device='cuda:0')
         pos_labels = torch.ones(pos_hard.shape, device='cuda:0')
+        # print('final hards shape', data.shape, torch.bincount(labels), neg_hard.shape, neg_labels.shape,
+        #       pos_hard.shape, pos_labels.shape)
 
-        return torch.cat([neg_hard, pos_hard]), torch.cat([neg_labels, pos_labels])
+        total = neg_labels.shape[0] + pos_labels.shape[0]
+        weights = torch.FloatTensor([1.0+torch.true_divide(pos_labels.shape[0], total),
+                                     1.0+torch.true_divide(neg_labels.shape[0], total)]).cuda()
+
+        return torch.cat([neg_hard, pos_hard]), torch.cat([neg_labels, pos_labels]), weights
