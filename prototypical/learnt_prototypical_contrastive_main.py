@@ -4,7 +4,7 @@ import sys
 import datetime
 import imageio
 import numpy as np
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score, jaccard_score
 import scipy.stats as stats
 
 import torch
@@ -63,12 +63,9 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
                 occur_im[cur_x:cur_x + test_loader.dataset.crop_size,
                          cur_y:cur_y + test_loader.dataset.crop_size] += 1
 
-    if test_loader.dataset.dataset == 'Orange':
-        pred_pos = np.where(occur_im.flatten() >= 1)
-
     # normalise to remove non-predicted pixels
-    prob_im[np.where(occur_im == 0)] = 1
     occur_im[np.where(occur_im == 0)] = 1
+
     # prob_im_argmax = ((prob_im / occur_im.astype(float)) <= 0.999).astype(int)  # v1
     if hasattr(criterion, 'pos_margin'):
         prob_im_argmax = ((prob_im / occur_im.astype(float)) < criterion.pos_margin).astype(int)
@@ -82,14 +79,11 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
     # Saving predictions.
     imageio.imwrite(os.path.join(output_path, 'proto_prd.png'), prob_im_argmax*255)
 
-    if test_loader.dataset.dataset == 'Coffee_Full':
+    if test_loader.dataset.dataset == 'Coffee_Full' or test_loader.dataset.dataset == 'Orange':
         labs = test_loader.dataset.labels[0]
         coord = np.where(labs != 2)
         lbl = labs[coord]
         pred = prob_im_argmax[coord]
-    elif test_loader.dataset.dataset == 'Orange':
-        lbl = test_loader.dataset.labels[0].flatten()[pred_pos]
-        pred = prob_im_argmax.flatten()[pred_pos]
     else:
         lbl = test_loader.dataset.labels[0].flatten()
         pred = prob_im_argmax.flatten()
@@ -102,6 +96,7 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
     f1_s_micro = f1_score(lbl, pred, average='micro')
     f1_s_macro = f1_score(lbl, pred, average='macro')
     kappa = cohen_kappa_score(lbl, pred)
+    jaccard = jaccard_score(lbl, pred)
     tau, p = stats.kendalltau(lbl, pred)
 
     _sum = 0.0
@@ -116,6 +111,7 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
           " F1 score micro= " + "{:.4f}".format(f1_s_micro) +
           " F1 score macro= " + "{:.4f}".format(f1_s_macro) +
           " Kappa= " + "{:.4f}".format(kappa) +
+          " Jaccard= " + "{:.4f}".format(jaccard) +
           " Tau= " + "{:.4f}".format(tau) +
           " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
           )
@@ -148,17 +144,17 @@ def test(test_loader, criterion, net, epoch):
                 pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
             labs = labs.flatten()
 
-            if test_loader.dataset.dataset == 'Coffee_Full':
-                # filtering out pixels
-                coord = np.where(labs != 2)
-                labs = labs[coord]
-                pred = pred[coord]
+            # filtering out pixels
+            coord = np.where(labs != 2)
+            labs = labs[coord]
+            pred = pred[coord]
 
             track_cm += confusion_matrix(labs, pred, labels=[0, 1])
 
     acc = (track_cm[0][0] + track_cm[1][1])/np.sum(track_cm)
     f1_s = f1_with_cm(track_cm)
     kappa = kappa_with_cm(track_cm)
+    jaccard = jaccard_with_cm(track_cm)
 
     _sum = 0.0
     for k in range(len(track_cm)):
@@ -171,6 +167,7 @@ def test(test_loader, criterion, net, epoch):
           " Normalized Accuracy= " + "{:.4f}".format(nacc) +
           " F1 Score= " + "{:.4f}".format(f1_s) +
           " Kappa= " + "{:.4f}".format(kappa) +
+          " Jaccard= " + "{:.4f}".format(jaccard) +
           " Confusion Matrix= " + np.array_str(track_cm).replace("\n", "")
           )
 
@@ -225,11 +222,10 @@ def train(train_loader, net, criterion, optimizer, epoch, output):
                 pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
             labels = labels.flatten()
 
-            if train_loader.dataset.dataset == 'Coffee_Full':
-                # filtering out pixels
-                coord = np.where(labels != 2)
-                labels = labels[coord]
-                pred = pred[coord]
+            # filtering out pixels
+            coord = np.where(labels != 2)
+            labels = labels[coord]
+            pred = pred[coord]
 
             acc = accuracy_score(labels, pred)
             conf_m = confusion_matrix(labels, pred, labels=[0, 1])
@@ -428,7 +424,7 @@ if __name__ == '__main__':
         best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
         index = 0
         for i in range(len(best_records)):
-            if best_records[index]['nacc'] < best_records[i]['nacc']:
+            if best_records[index]['kappa'] < best_records[i]['kappa']:
                 index = i
 
         print('---- data ----')

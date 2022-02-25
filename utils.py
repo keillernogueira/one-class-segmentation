@@ -108,6 +108,13 @@ def f1_with_cm(conf_matrix):
     return np.mean(f1)
 
 
+def jaccard_with_cm(conf_matrix):
+    den = float(np.sum(conf_matrix[:, 1]) + np.sum(conf_matrix[1]) - conf_matrix[1][1])
+    _sum_iou = conf_matrix[1][1] / den if den != 0 else 0
+
+    return _sum_iou
+
+
 def get_triples(feat, labs, track_mean=None):
     feat_pos_lbl = feat[labs == 1, :]  # .detach()
     # feat_neg_lbl = feat[labs == 0, :].detach()

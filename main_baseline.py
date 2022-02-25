@@ -2,7 +2,7 @@ import sys
 import datetime
 import numpy as np
 import imageio
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score, jaccard_score
 import scipy.stats as stats
 
 import torch
@@ -19,6 +19,7 @@ from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
 from config import *
 from utils import *
 from network import FCNWideResNet50
+from efficientnet import FCNEfficientNetB0
 from focal_loss import BinaryFocalLoss, FocalLossV2
 
 
@@ -42,7 +43,7 @@ def test_full_map(test_loader, net, epoch, output_path):
             # labs_c = Variable(labs).cuda()
 
             # Forwarding.
-            outs, _, _ = net(inps_c)
+            outs, _ = net(inps_c)
             # Computing probabilities.
             soft_outs = F.softmax(outs, dim=1)
 
@@ -81,6 +82,7 @@ def test_full_map(test_loader, net, epoch, output_path):
     f1_s_micro = f1_score(labs, prds, average='micro')
     f1_s_macro = f1_score(labs, prds, average='macro')
     kappa = cohen_kappa_score(labs, prds)
+    jaccard = jaccard_score(labs, prds)
     tau, p = stats.kendalltau(labs, prds)
 
     _sum = 0.0
@@ -95,6 +97,7 @@ def test_full_map(test_loader, net, epoch, output_path):
           " F1 score micro= " + "{:.4f}".format(f1_s_micro) +
           " F1 score macro= " + "{:.4f}".format(f1_s_macro) +
           " Kappa= " + "{:.4f}".format(kappa) +
+          " Jaccard= " + "{:.4f}".format(jaccard) +
           " Tau= " + "{:.4f}".format(tau) +
           " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
           )
@@ -119,7 +122,7 @@ def test(test_loader, net, epoch, loss_type):
             # labs_c = Variable(labs).cuda()
 
             # Forwarding.
-            outs, _, _ = net(inps_c)
+            outs, _ = net(inps_c)
 
             if 'Binary' in loss_type:
                 sigmoid_outs = torch.sigmoid(outs)
@@ -142,6 +145,7 @@ def test(test_loader, net, epoch, loss_type):
         acc = (track_cm[0][0] + track_cm[1][1]) / np.sum(track_cm)
         f1_s = f1_with_cm(track_cm)
         kappa = kappa_with_cm(track_cm)
+        jaccard = jaccard_with_cm(track_cm)
 
         _sum = 0.0
         for k in range(len(track_cm)):
@@ -154,6 +158,7 @@ def test(test_loader, net, epoch, loss_type):
               " Normalized Accuracy= " + "{:.4f}".format(nacc) +
               " F1 Score= " + "{:.4f}".format(f1_s) +
               " Kappa= " + "{:.4f}".format(kappa) +
+              " Jaccard= " + "{:.4f}".format(jaccard) +
               " Confusion Matrix= " + np.array_str(track_cm).replace("\n", "")
               )
 
@@ -186,7 +191,7 @@ def train(train_loader, net, criterion, optimizer, epoch, loss_type):
         optimizer.zero_grad()
 
         # Forwarding.
-        outs, _, _ = net(inps)
+        outs, _ = net(inps)
 
         # Computing Cross entropy loss.
         if 'Binary' in loss_type:
@@ -258,7 +263,7 @@ if __name__ == '__main__':
 
     # model options
     parser.add_argument('--model', type=str, required=True, default=None,
-                        help='Model to be used.', choices=['WideResNet'])
+                        help='Model to be used.', choices=['WideResNet', 'EfficientNetB0'])
     parser.add_argument('--loss', type=str, required=True, default=None,
                         help='Loss function to be used.', choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
@@ -326,6 +331,9 @@ if __name__ == '__main__':
         if args.model == 'WideResNet':
             model = FCNWideResNet50(1 if 'Binary' in args.loss else train_dataset.num_classes,
                                     pretrained=True, classif=True)
+        elif args.model == 'EfficientNetB0':
+            model = FCNEfficientNetB0(1 if 'Binary' in args.loss else train_dataset.num_classes,
+                                      pretrained=True, classif=True)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
         # model.cuda()
@@ -345,15 +353,26 @@ if __name__ == '__main__':
             raise NotImplementedError("Loss " + args.loss + " not implemented")
         # tl_criterion = nn.TripletMarginLoss(margin=1.0, p=2)
 
-        if model.classif is True:
-            optimizer = optim.Adam([
-                {'params': list(model.parameters())[:-10]},
-                {'params': list(model.parameters())[-10:], 'lr': args.learning_rate, 'weight_decay': args.weight_decay}],
-                lr=args.learning_rate/10, weight_decay=args.weight_decay, betas=(0.9, 0.99)
-            )
-        else:
-            optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
-                                   betas=(0.9, 0.99))
+        # if model.classif is True:
+        #     if args.model == 'WideResNet':
+        #         optimizer = optim.Adam([
+        #             {'params': list(model.parameters())[:-6]},
+        #             {'params': list(model.parameters())[-6:], 'lr': args.learning_rate, 'weight_decay': args.weight_decay}],
+        #             lr=args.learning_rate/10, weight_decay=args.weight_decay, betas=(0.9, 0.99)
+        #         )
+        #     elif args.model == 'EfficientNetB0':
+        #         optimizer = optim.Adam([
+        #             {'params': list(model.parameters())[:-10]},
+        #             {'params': list(model.parameters())[-10:], 'lr': args.learning_rate, 'weight_decay': args.weight_decay}],
+        #             lr=args.learning_rate / 10, weight_decay=args.weight_decay, betas=(0.9, 0.99)
+        #         )
+        #     else:
+        #         raise NotImplementedError("Network " + args.model + " not implemented")
+        # else:
+        #     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
+        #                            betas=(0.9, 0.99))
+        optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
+                               betas=(0.9, 0.99))
 
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
@@ -421,6 +440,9 @@ if __name__ == '__main__':
         # network
         if args.model == 'WideResNet':
             model = FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=True)
+        elif args.model == 'EfficientNetB0':
+            model = FCNEfficientNetB0(1 if 'Binary' in args.loss else test_dataset.num_classes,
+                                      pretrained=True, classif=True)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 

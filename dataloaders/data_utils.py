@@ -78,12 +78,12 @@ def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River',
                         instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
                         gen_classes.append(1)
                         counter[1] += 1
-                        binc[1] += count
+                        binc[1] += count[0:2]  # get only the first two positions
                     else:
                         instances[0].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
                         gen_classes.append(0)
                         counter[0] += 1
-                        binc[0] += count
+                        binc[0] += count[0:2]  # get only the first two positions
 
     for i in range(len(counter)):
         print('Class ' + str(i) + ' has length ' + str(counter[i]) + ' - ' + np.array_str(binc[i]).replace("\n", ""))

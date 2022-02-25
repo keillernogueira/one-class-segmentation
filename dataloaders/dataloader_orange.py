@@ -28,7 +28,7 @@ class DataLoaderOrange(data.Dataset):
         if len(self.data) == 0:
             raise RuntimeError('Found 0 samples, please check the data set path')
 
-        self.num_classes = len(np.unique(self.labels[0]))
+        self.num_classes = len(np.unique(self.labels[0])) - 1  # -1 to remove class 2 which is the background
 
         self.distrib = self.make_dataset()
         print(self.mode + ' distrib = ', len(self.distrib))
@@ -62,7 +62,7 @@ class DataLoaderOrange(data.Dataset):
         image[np.where(image <= -100)] = 0.0
 
         images.append(image)
-        masks.append(imageio.imread(os.path.join(self.dataset_path, 'mask', 'sequoia_raster.tif')))
+        masks.append(imageio.imread(os.path.join(self.dataset_path, 'mask', 'final_mask.png')))
 
         return images, masks
 
