@@ -220,13 +220,24 @@ def train(train_loader, net, criterion, optimizer, epoch, output):
                 pred = (-outs < criterion.pos_margin).int().detach().cpu().numpy().flatten()
             else:
                 pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
-            labels = labels.flatten()
+            labels = labels.detach().cpu().numpy().flatten()
 
             # filtering out pixels
             coord = np.where(labels != 2)
             labels = labels[coord]
             pred = pred[coord]
 
+            # checking distances
+            # n_outs = -outs.detach().cpu().numpy().flatten()[coord]
+            # false_pos = n_outs[np.logical_and(labels == 0, pred == 1)]
+            # false_neg = n_outs[np.logical_and(labels == 1, pred == 0)]
+            # print(false_pos.shape, false_pos.shape[0])
+            # if false_pos.shape[0] != 0:
+            #     print('false_pos', np.min(false_pos), np.mean(false_pos), np.max(false_pos))
+            # if false_neg.shape[0] != 0:
+            #     print('false_neg', np.min(false_neg), np.mean(false_neg), np.max(false_neg))
+
+            # metrics
             acc = accuracy_score(labels, pred)
             conf_m = confusion_matrix(labels, pred, labels=[0, 1])
             f1_s = f1_score(labels, pred, average='weighted')
