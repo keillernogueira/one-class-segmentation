@@ -48,7 +48,7 @@ def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River',
                         counter[0] += 1
                         binc[0] += count
                 elif dataset == 'Coffee_Full':
-                    if len(count) == 2:  # there is only coffee and non-coffee
+                    if len(count) == 2:  # there is only coffee and/or non-coffee
                         if count[1] != 0:  # there is at least one coffee pixel
                             instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
                             gen_classes.append(1)
@@ -59,7 +59,7 @@ def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River',
                             gen_classes.append(0)
                             counter[0] += 1
                             binc[0] += count
-                    else:  # there is background
+                    else:  # there is background (class 2)
                         if count[2] <= count[0] + count[1]:
                             if count[1] != 0:
                                 instances[1].append((cur_map, cur_x, cur_y, np.bincount(patch_class.flatten())))
@@ -91,6 +91,8 @@ def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River',
     if return_all:
         return np.asarray(instances[0] + instances[1]), np.asarray(gen_classes)
     else:
+        # this generates an error because len(gen_classes) > len(instances[1])
+        # Not using this because training with full training and validation given the weight sampler
         return np.asarray(instances[1]), np.asarray(gen_classes)
 
 

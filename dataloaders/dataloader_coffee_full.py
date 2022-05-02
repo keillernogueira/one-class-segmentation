@@ -15,7 +15,7 @@ class DataLoaderCoffeeFull(data.Dataset):
     def __init__(self, mode, dataset, dataset_input_path, images, crop_size, stride_size,
                  statistics="own", mean=None, std=None, output_path=None):
         super().__init__()
-        assert mode in ['Train', 'Test', 'Full_Test']
+        assert mode in ['Train', 'Test', 'Full_Train', 'Full_Test']
 
         self.mode = mode
         self.dataset = dataset
@@ -28,7 +28,7 @@ class DataLoaderCoffeeFull(data.Dataset):
         self.num_classes = len(np.unique(self.labels[0])) - 1  # -1 to remove class 2 which is the background
 
         self.distrib, self.gen_classes = self.make_dataset()
-        print('check check', len(self.distrib), len(self.gen_classes))
+        print('check check', np.asarray(self.distrib).shape, len(self.gen_classes))
 
         if statistics == "own" and mean is None and std is None:
             self.mean, self.std = create_or_load_statistics(self.data, self.distrib, self.crop_size,
@@ -53,7 +53,7 @@ class DataLoaderCoffeeFull(data.Dataset):
             images.append(np.rollaxis(temp_image, 0, 3))
             masks.append(temp_mask)
 
-        # print('dataloader 2', np.asarray(images).shape, np.asarray(masks).shape)
+        print('dataloader 2', np.asarray(images).shape, np.asarray(masks).shape)
         return images, masks
 
     def make_dataset(self):
@@ -75,7 +75,7 @@ class DataLoaderCoffeeFull(data.Dataset):
         # Normalization.
         normalize_images(img, self.mean, self.std)
 
-        if self.mode == 'Train':
+        if 'Train' in self.mode or 'train' in self.mode:
             img, label = data_augmentation(img, label)
 
         img = np.transpose(img, (2, 0, 1))

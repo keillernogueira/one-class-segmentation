@@ -331,10 +331,10 @@ if __name__ == '__main__':
                                             mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Coffee_Full':
             print('---- training data ----')
-            train_dataset = DataLoaderCoffeeFull('Train', args.dataset, args.dataset_path, args.training_images,
+            train_dataset = DataLoaderCoffeeFull('Full_Train', args.dataset, args.dataset_path, args.training_images,
                                                  args.crop_size, args.stride_crop, output_path=args.output_path)
             print('---- testing data ----')
-            test_dataset = DataLoaderCoffeeFull('Test', args.dataset, args.dataset_path, args.testing_images,
+            test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
                                                 args.crop_size, args.stride_crop,
                                                 mean=train_dataset.mean, std=train_dataset.std)
         else:

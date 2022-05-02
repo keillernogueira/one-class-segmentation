@@ -90,6 +90,7 @@ class ContrastiveLoss(nn.Module):
         neg_hard = all_neg_values[all_neg_values < self.margin]
 
         if neg_hard.shape[0] == 0:
+            # print('check bin', torch.bincount(labels), len(torch.bincount(labels)))
             total = torch.bincount(labels)[0] + torch.bincount(labels)[1]
             weights = torch.FloatTensor([1.0 + torch.true_divide(torch.bincount(labels)[1], total),
                                          1.0 + torch.true_divide(torch.bincount(labels)[0], total)]).cuda()

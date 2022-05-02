@@ -1,6 +1,8 @@
 import os
 import numpy as np
 
+from PIL import Image
+
 import imageio
 from skimage import img_as_float
 from skimage import transform
@@ -10,6 +12,8 @@ from torch.utils import data
 
 from dataloaders.data_utils import create_distrib, create_or_load_statistics, \
     normalize_images, create_distrib_knn, data_augmentation
+
+Image.MAX_IMAGE_PIXELS = None
 
 
 class DataLoader(data.Dataset):
@@ -27,7 +31,7 @@ class DataLoader(data.Dataset):
         self.stride_size = stride_size
 
         self.data, self.labels = self.load_images()
-        self.num_classes = len(np.unique(self.labels[0]))
+        self.num_classes = 2  # len(np.unique(self.labels[0]))
 
         self.distrib, self.gen_classes = self.make_dataset()
 
@@ -48,10 +52,19 @@ class DataLoader(data.Dataset):
         images = []
         masks = []
         for img in self.images:
-            temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_input_path, img + '_image.tif')))
-            temp_mask = imageio.imread(os.path.join(self.dataset_input_path, img + '_mask.tif')).astype(int)
-            images.append(temp_image[:, :, 0:3])
-            masks.append(temp_mask)
+            try:
+                temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_input_path, img + '_image.tif')))
+                temp_mask = imageio.imread(os.path.join(self.dataset_input_path, img + '_mask.tif')).astype(int)
+                images.append(temp_image[:, :, 0:3])
+                masks.append(temp_mask)
+            except:
+                temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_input_path, img)))
+                temp_mask = imageio.imread(os.path.join(self.dataset_input_path,
+                                                        img.replace('jp2', 'tif'))).astype(int)[:, :, 0]
+                images.append(temp_image[:, :, 0:3])
+                temp_mask[np.where(temp_mask == 255)] = 1
+                masks.append(temp_mask)
+            print(img, temp_image.shape, temp_mask.shape)
 
         return images, masks
 
@@ -79,7 +92,7 @@ class DataLoader(data.Dataset):
         # Normalization.
         normalize_images(img, self.mean, self.std)
 
-        if self.mode == 'Train':
+        if 'Train' in self.mode or 'train' in self.mode:
             img, label = data_augmentation(img, label)
 
         img = np.transpose(img, (2, 0, 1))

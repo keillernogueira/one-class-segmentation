@@ -138,6 +138,9 @@ def test(test_loader, criterion, net, epoch):
             outs = net(inps_c)
 
             # pred = (-outs <= 0.999).int().detach().cpu().numpy()  # v1
+            b, c, h, w = outs.shape
+            # max because the values are negative
+            outs, _ = outs.view(b, c, h * w).transpose(1, 2).contiguous().view(b * h * w, c).max(1)
             if hasattr(criterion, 'pos_margin'):
                 pred = (-outs < criterion.pos_margin).int().detach().cpu().numpy().flatten()
             else:
@@ -359,10 +362,10 @@ if __name__ == '__main__':
         # network
         if args.model == 'WideResNet':
             model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True, classif=False),
-                                     squared=False, n_prototypes=3, embedding_dim=2560)
+                                     squared=False, n_prototypes=2, embedding_dim=2560)
         elif args.model == 'EfficientNetB0':
             model = LearntPrototypes(FCNEfficientNetB0(train_dataset.num_classes, pretrained=True, classif=False),
-                                     squared=False, n_prototypes=3, embedding_dim=2096)
+                                     squared=False, n_prototypes=2, embedding_dim=2096)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 

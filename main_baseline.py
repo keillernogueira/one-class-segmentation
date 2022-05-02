@@ -61,7 +61,7 @@ def test_full_map(test_loader, net, epoch, output_path):
 
     occur_im[np.where(occur_im == 0)] = 1
     prob_im_argmax = np.argmax(prob_im / occur_im.astype(float), axis=-1)
-    print(prob_im_argmax.shape, np.bincount(prob_im_argmax.flatten()),
+    print('test_full check', prob_im_argmax.shape, np.bincount(prob_im_argmax.flatten()),
           test_loader.dataset.labels[0].shape, np.bincount(test_loader.dataset.labels[0].flatten()))
 
     # pixel outside area should be 0 for the final image
@@ -274,7 +274,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--weight_sampler', type=str2bool, default=False, help='Use weight sampler for loader?')
     args = parser.parse_args()
-    print(args)
+    print(sys.argv[0], args)
 
     # data loaders
     if args.operation == 'Train':
@@ -302,10 +302,10 @@ if __name__ == '__main__':
                                             mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Coffee_Full':
             print('---- training data ----')
-            train_dataset = DataLoaderCoffeeFull('Train', args.dataset, args.dataset_path, args.training_images,
+            train_dataset = DataLoaderCoffeeFull('Full_Train', args.dataset, args.dataset_path, args.training_images,
                                                  args.crop_size, args.stride_crop, output_path=args.output_path)
             print('---- testing data ----')
-            test_dataset = DataLoaderCoffeeFull('Test', args.dataset, args.dataset_path, args.testing_images,
+            test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
                                                 args.crop_size, args.stride_crop,
                                                 mean=train_dataset.mean, std=train_dataset.std)
         else:
@@ -449,6 +449,7 @@ if __name__ == '__main__':
 
         epoch = 0
         if args.model_path is not None:
+            print("Loading model")
             model.load_state_dict(torch.load(args.model_path))
             epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
         model.cuda()
