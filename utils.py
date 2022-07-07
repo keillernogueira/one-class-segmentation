@@ -13,6 +13,8 @@ import torch
 from torch import nn
 from torch.autograd import Variable
 
+from config import NUM_WORKERS
+
 
 def initialize_weights(*models):
     for model in models:
@@ -82,6 +84,15 @@ def project_data(data, labels, save_name, pca_n_components=50):
                     palette=sns.color_palette("hls", 2), legend="full", alpha=0.3)
     # plt.show()
     plt.savefig(save_name)
+
+
+def sample_weight_train_loader(train_dataset, gen_classes, batch_size):
+    class_loader_weights = 1. / np.bincount(gen_classes)
+    samples_weights = class_loader_weights[gen_classes]
+    sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weights, len(samples_weights), replacement=True)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
+                                                   num_workers=NUM_WORKERS, drop_last=False, sampler=sampler)
+    return train_dataloader
 
 
 def kappa_with_cm(conf_matrix):

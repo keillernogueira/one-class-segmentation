@@ -20,6 +20,7 @@ from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
 
 from config import *
 from utils import *
+from dataloaders.data_utils import update_train_loader
 from network import FCNWideResNet50
 from efficientnet import FCNEfficientNetB0
 
@@ -176,6 +177,63 @@ def test(test_loader, criterion, net, epoch):
     return acc, nacc, f1_s, kappa, track_cm
 
 
+def train_full_map(train_loader, criterion, net, epoch):
+    # Setting network for evaluation mode.
+    net.eval()
+
+    prob_im = []
+    occur_im = []
+    for i in range(len(train_loader.dataset.labels)):
+        prob_im.append(np.zeros([train_loader.dataset.labels[i].shape[0],
+                                 train_loader.dataset.labels[i].shape[1]], dtype=np.float32))
+        occur_im.append(np.zeros([train_loader.dataset.labels[i].shape[0],
+                                  train_loader.dataset.labels[i].shape[1]], dtype=int))
+
+    with torch.no_grad():
+        # Iterating over batches.
+        for i, data in enumerate(train_loader):
+            # Obtaining images, labels and paths for batch.
+            inps, labs, cur_maps, cur_xs, cur_ys = data
+
+            # Casting to cuda variables.
+            inps_c = Variable(inps).cuda()
+            # labs_c = Variable(labs).cuda()
+
+            # Forwarding.
+            outs = net(inps_c)
+
+            for j in range(outs.shape[0]):
+                cur_map = cur_maps[j]
+                cur_x = cur_xs[j]
+                cur_y = cur_ys[j]
+
+                outs_p = -outs.permute(0, 2, 3, 1).cpu().detach().numpy()
+
+                prob_im[cur_map][cur_x:cur_x + train_loader.dataset.crop_size,
+                                 cur_y:cur_y + train_loader.dataset.crop_size] += outs_p[j, :, :, 0]
+                occur_im[cur_map][cur_x:cur_x + train_loader.dataset.crop_size,
+                                  cur_y:cur_y + train_loader.dataset.crop_size] += 1
+
+    prob_im_argmax = []
+    correct_classified_map = []
+    for i in range(len(train_loader.dataset.labels)):
+        # normalise to remove non-predicted pixels
+        occur_im[i][np.where(occur_im[i] == 0)] = 1
+
+        # prob_im_argmax = ((prob_im / occur_im.astype(float)) <= 0.999).astype(int)  # v1
+        if hasattr(criterion, 'pos_margin'):
+            prob_im_argmax.append(((prob_im[i] / occur_im[i].astype(float)) < criterion.pos_margin).astype(int))
+        else:
+            prob_im_argmax.append(((prob_im[i] / occur_im[i].astype(float)) < criterion.margin).astype(int))
+        # print(prob_im_argmax[i].shape, np.bincount(prob_im_argmax[i].flatten()),
+        #       train_loader.dataset.labels[i].shape, np.bincount(train_loader.dataset.labels[i].flatten()))
+
+        correct_classified_map.append((prob_im_argmax[i] != train_loader.dataset.labels[i]).astype(int))
+
+    # print(correct_classified_map[0].shape, correct_classified_map[1].shape)
+    return correct_classified_map
+
+
 def train(train_loader, net, criterion, optimizer, epoch, output):
     # Setting network for training mode.
     net.train()
@@ -300,8 +358,9 @@ if __name__ == '__main__':
     parser.add_argument('--pos_margin', type=float, default=None,
                         help='Margin for the positive class of the contrastive learning')
     parser.add_argument('--miner', type=str2bool, default=False,
-                        help='Miner hard samples and equalize number fo samples 1:1')
+                        help='Miner hard samples and equalize number of samples 1:1')
     parser.add_argument('--weight_sampler', type=str2bool, default=False, help='Use weight sampler for loader?')
+    parser.add_argument('--dynamic_sampler', type=str2bool, default=False, help='Dynamic sampler based on uncertainty')
     args = parser.parse_args()
     print(sys.argv[0], args)
 
@@ -344,12 +403,7 @@ if __name__ == '__main__':
             train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                                            shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
         else:
-            class_loader_weights = 1. / np.bincount(train_dataset.gen_classes)
-            samples_weights = class_loader_weights[train_dataset.gen_classes]
-            sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weights, len(samples_weights),
-                                                                     replacement=True)
-            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                           num_workers=NUM_WORKERS, drop_last=False, sampler=sampler)
+            train_dataloader = sample_weight_train_loader(train_dataset, train_dataset.gen_classes, args.batch_size)
 
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
@@ -393,11 +447,17 @@ if __name__ == '__main__':
         print('---- training ----')
         for epoch in range(curr_epoch, args.epoch_num + 1):
             train(train_dataloader, model, criterion, optimizer, epoch, args.output_path)
+            # validation
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
                 # acc, nacc, f1_s, kappa, track_cm
                 acc, nacc, f1_s, kappa, _ = test(test_dataloader, criterion, model, epoch)
                 save_best_models(model, optimizer, args.output_path, best_records, epoch, kappa)
+            # calculate patches to sample
+            if args.dynamic_sampler:
+                diff_maps = train_full_map(train_dataloader, criterion, model, epoch)
+                gen_classes = update_train_loader(diff_maps, train_dataset.distrib, train_dataset.crop_size)
+                train_dataloader = sample_weight_train_loader(train_dataset, gen_classes, args.batch_size)
             scheduler.step()
     elif args.operation == 'Test':
         print('---- testing ----')
