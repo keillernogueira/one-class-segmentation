@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 
+# https://pytorch.org/docs/stable/generated/torch.nn.HingeEmbeddingLoss.html
 class ContrastiveLoss(nn.Module):
     def __init__(self, margin=1.0, has_miner=True, weights=[1.0, 1.0], ignore_index=-1):
         super(ContrastiveLoss, self).__init__()

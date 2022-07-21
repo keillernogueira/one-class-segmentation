@@ -454,9 +454,10 @@ if __name__ == '__main__':
                 acc, nacc, f1_s, kappa, _ = test(test_dataloader, criterion, model, epoch)
                 save_best_models(model, optimizer, args.output_path, best_records, epoch, kappa)
             # calculate patches to sample
-            if args.dynamic_sampler:
+            if args.dynamic_sampler and epoch % NEW_SAMPLE_INTERVAL == 0:
                 diff_maps = train_full_map(train_dataloader, criterion, model, epoch)
-                gen_classes = update_train_loader(diff_maps, train_dataset.distrib, train_dataset.crop_size)
+                gen_classes = update_train_loader(diff_maps, train_dataset.distrib,
+                                                  train_dataset.crop_size, percentage=0.05)
                 train_dataloader = sample_weight_train_loader(train_dataset, gen_classes, args.batch_size)
             scheduler.step()
     elif args.operation == 'Test':
