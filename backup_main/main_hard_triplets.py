@@ -1,7 +1,6 @@
 import gc
 import sys
 import datetime
-import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix
 
 import torch
@@ -13,7 +12,7 @@ import torch.nn.functional as F
 from dataloaders.dataloader import DataLoader
 from config import *
 from utils import *
-from network import FCNWideResNet50
+from networks.FCNWideResNet50 import FCNWideResNet50
 
 
 def test_full(test_loader, net, epoch, track_mean=None):

@@ -5,7 +5,7 @@ import torch.nn as nn
 from dataloaders.dataloader import DataLoader
 from config import *
 from utils import *
-from network import FCNWideResNet50
+from networks.FCNWideResNet50 import FCNWideResNet50
 
 from train import train
 from test import test_per_patch

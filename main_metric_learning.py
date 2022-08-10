@@ -1,7 +1,6 @@
 import gc
 import sys
 import datetime
-import numpy as np
 
 import torch
 from torch import optim
@@ -14,7 +13,7 @@ from pytorch_metric_learning.reducers import MultipleReducers, ThresholdReducer,
 from dataloaders.dataloader import DataLoader
 from config import *
 from utils import *
-from network import FCNWideResNet50
+from networks.FCNWideResNet50 import FCNWideResNet50
 from feat_ext import general_feature_extractor
 
 

@@ -11,7 +11,7 @@ from torch.autograd import Variable
 from dataloaders.dataloader import DataLoader
 from config import *
 from utils import *
-from network import FCNWideResNet50
+from networks.FCNWideResNet50 import FCNWideResNet50
 
 from prototypical import PrototypicalLoss
 from feat_ext import general_feature_extractor

@@ -19,7 +19,7 @@ Image.MAX_IMAGE_PIXELS = None
 class DataLoader(data.Dataset):
 
     def __init__(self, mode, dataset, dataset_input_path, images, crop_size, stride_size,
-                 statistics="own", mean=None, std=None, output_path=None):
+                 statistics="own", mean=None, std=None, output_path=None, crop=False):
         super().__init__()
         assert mode in ['Full_train', 'Train', 'Validation', 'Full_test', 'Plot', 'KNN']
 
@@ -29,6 +29,7 @@ class DataLoader(data.Dataset):
         self.images = images
         self.crop_size = crop_size
         self.stride_size = stride_size
+        self.crop = crop
 
         self.data, self.labels = self.load_images()
         self.num_classes = 2  # len(np.unique(self.labels[0]))
@@ -53,8 +54,14 @@ class DataLoader(data.Dataset):
         masks = []
         for img in self.images:
             try:
-                temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_input_path, img + '_image.tif')))
-                temp_mask = imageio.imread(os.path.join(self.dataset_input_path, img + '_mask.tif')).astype(int)
+                if self.crop is False:
+                    temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_input_path, img + '_image.tif')))
+                    temp_mask = imageio.imread(os.path.join(self.dataset_input_path, img + '_mask.tif')).astype(int)
+                else:
+                    temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_input_path,
+                                                                          img + '_image_crop.tif')))
+                    temp_mask = imageio.imread(os.path.join(self.dataset_input_path, img +
+                                                            '_mask_crop.tif')).astype(int)
                 images.append(temp_image[:, :, 0:3])
                 masks.append(temp_mask)
             except:

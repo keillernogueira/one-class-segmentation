@@ -1,6 +1,5 @@
 import sys
 import datetime
-import numpy as np
 import imageio
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score, jaccard_score
 import scipy.stats as stats
@@ -18,8 +17,8 @@ from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
 
 from config import *
 from utils import *
-from network import FCNWideResNet50
-from efficientnet import FCNEfficientNetB0
+from networks.FCNWideResNet50 import FCNWideResNet50
+from networks.efficientnet import FCNEfficientNetB0
 from focal_loss import BinaryFocalLoss, FocalLossV2
 
 
@@ -273,6 +272,7 @@ if __name__ == '__main__':
     parser.add_argument('--epoch_num', type=int, default=50, help='Number of epochs')
 
     parser.add_argument('--weight_sampler', type=str2bool, default=False, help='Use weight sampler for loader?')
+    parser.add_argument('--crop', type=str2bool, default=False, help='River crop dataset?')
     args = parser.parse_args()
     print(sys.argv[0], args)
 
@@ -281,10 +281,11 @@ if __name__ == '__main__':
         if args.dataset == 'River':
             print('---- training data ----')
             train_dataset = DataLoader('Full_train', args.dataset, args.dataset_path, args.training_images,
-                                       args.crop_size, args.stride_crop, output_path=args.output_path)
+                                       args.crop_size, args.stride_crop, output_path=args.output_path, crop=args.crop)
             print('---- testing data ----')
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
-                                      args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
+                                      args.crop_size, args.stride_crop,
+                                      mean=train_dataset.mean, std=train_dataset.std, crop=args.crop)
         elif args.dataset == 'Orange':
             print('---- training data ----')
             train_dataset = DataLoaderOrange('Train', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,

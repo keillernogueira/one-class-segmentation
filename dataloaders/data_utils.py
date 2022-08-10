@@ -1,4 +1,5 @@
 import os
+import sys
 import random
 from skimage import transform
 
@@ -147,7 +148,6 @@ def create_distrib_knn(labels, crop_size, stride_size, num_classes):
 
 def update_train_loader(diff_maps, distrib, crop_size, percentage=0.05):
     count_wrong_classified_pixels = []
-    counter = np.zeros(2)
 
     for i, d in enumerate(distrib):
         cur_map = d[0]
@@ -163,9 +163,48 @@ def update_train_loader(diff_maps, distrib, crop_size, percentage=0.05):
 
     gen_classes = np.zeros(len(count_wrong_classified_pixels_s), dtype=int)
     gen_classes[selected_indexes] = 1
+
+    # for debug
+    counter = np.zeros(2)
     for p in distrib[selected_indexes]:
         counter += p[3]
     print('new bincount', counter)
+
+    return gen_classes
+
+
+# deprecated - not finalized
+def update_train_loader_entropy(diff_maps, distrib, crop_size, percentage=0.05):
+    epsilon = sys.float_info.min
+
+    count_wrong_classified_pixels = []
+
+    # Calculating entropy across multiple MCD forward passes
+    entropy = []
+    for i in len(diff_maps):
+        entropy.append(-(diff_maps[i] * np.log(diff_maps[i] + epsilon)))
+
+    for i, d in enumerate(distrib):
+        cur_map = d[0]
+        cur_x = d[1]
+        cur_y = d[2]
+
+        cur_wrg = np.count_nonzero(diff_maps[cur_map][cur_x:cur_x + crop_size, cur_y:cur_y + crop_size])
+        count_wrong_classified_pixels.append((i, cur_wrg))
+
+    count_wrong_classified_pixels_s = sorted(count_wrong_classified_pixels, key=lambda tup: tup[1], reverse=True)
+    num_selected = int(len(count_wrong_classified_pixels_s) * percentage)
+    selected_indexes = [p[0] for p in count_wrong_classified_pixels_s[0:num_selected]]
+
+    gen_classes = np.zeros(len(count_wrong_classified_pixels_s), dtype=int)
+    gen_classes[selected_indexes] = 1
+
+    # for debug
+    counter = np.zeros(2)
+    for p in distrib[selected_indexes]:
+        counter += p[3]
+    print('new bincount', counter)
+
     return gen_classes
 
 

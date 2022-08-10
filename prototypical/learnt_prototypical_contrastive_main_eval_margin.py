@@ -3,7 +3,6 @@ import sys
 import os
 import datetime
 import imageio
-import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score
 import scipy.stats as stats
 
@@ -20,7 +19,7 @@ from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
 
 from config import *
 from utils import *
-from network import FCNWideResNet50
+from networks.FCNWideResNet50 import FCNWideResNet50
 
 from feat_ext import general_feature_extractor
 from contrastive_loss import ContrastiveLoss

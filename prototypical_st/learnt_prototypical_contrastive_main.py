@@ -19,7 +19,7 @@ from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
 
 from config import *
 from utils import *
-from dataloaders.data_utils import update_train_loader
+from dataloaders.data_utils import update_train_loader_entropy
 from networks.FCNWideResNet50 import FCNWideResNet50
 from networks.efficientnet import FCNEfficientNetB0
 
@@ -320,12 +320,76 @@ def train(train_loader, net, criterion, optimizer, epoch, output):
     sys.stdout.flush()
 
 
+def calculate_smooth_taylor(test_loader, net, output_path, noise_scale=0.5, num_roots=150):
+    prob_im = np.zeros([test_loader.dataset.labels[0].shape[0],
+                        test_loader.dataset.labels[0].shape[1], 3], dtype=np.float64)
+    occur_im = np.zeros([test_loader.dataset.labels[0].shape[0],
+                         test_loader.dataset.labels[0].shape[1], 3], dtype=int)
+
+    # Iterating over batches.
+    for i, data in enumerate(test_loader):
+        # Obtaining images, labels and paths for batch.
+        inps, labs, cur_maps, cur_xs, cur_ys = data
+
+        # generating white noise
+        roots = torch.stack([torch.zeros_like(inps.squeeze()) for _ in range(num_roots)])
+        for s in range(num_roots):
+            roots[s] = inps + noise_scale * torch.randn_like(inps)
+
+        roots_dataset = torch.utils.data.dataset.TensorDataset(roots)
+        roots_data_loader = torch.utils.data.DataLoader(roots_dataset, batch_size=8, shuffle=False)
+
+        ########################
+        gradients = []
+        for sample_batch in roots_data_loader:
+            inputs = sample_batch[0]
+            inputs = inputs.cuda()
+            inputs.requires_grad = True
+
+            # Perform the backpropagation for the explained class
+            outs = net(inputs)  # batch, 1, h, w
+            model.zero_grad()
+            torch.sum(outs[:, 0]).backward()
+            with torch.no_grad():
+                gradient = inputs.grad.detach().cpu().numpy()  # retrieve the input gradients
+                gradients.append(gradient)
+
+        gradients = np.array(gradients)
+        gradients = np.concatenate(gradients)
+
+        attributions = np.mean([(inps - roots_dataset[k][0]).numpy() * gradients[k]
+                                for k in range(num_roots)], axis=0)
+        # print('all', gradients.shape, attributions.shape)
+        ########################
+
+        attributions = np.transpose(attributions, (0, 2, 3, 1))
+
+        prob_im[cur_xs[0]:cur_xs[0] + test_loader.dataset.crop_size,
+                cur_ys[0]:cur_ys[0] + test_loader.dataset.crop_size, :] += attributions[0, :, :, :]
+        occur_im[cur_xs[0]:cur_xs[0] + test_loader.dataset.crop_size,
+                 cur_ys[0]:cur_ys[0] + test_loader.dataset.crop_size, :] += 1
+
+    # normalise to remove non-predicted pixels
+    occur_im[np.where(occur_im == 0)] = 1
+    saliency_map_rgb = prob_im / occur_im.astype(float)
+    print(saliency_map_rgb.shape, np.min(saliency_map_rgb), np.max(saliency_map_rgb))
+
+    # Saving
+    np.save(os.path.join(output_path, 'saliency_map_rgb.npy'), saliency_map_rgb)
+    imageio.imwrite(os.path.join(output_path, 'saliency_map_rgb.png'), saliency_map_rgb)
+
+    heatmap = np.sum(saliency_map_rgb, axis=-1)
+    print(heatmap.shape, np.min(heatmap), np.max(heatmap))
+    np.save(os.path.join(output_path, 'saliency_map.npy'), heatmap)
+    imageio.imwrite(os.path.join(output_path, 'saliency_map.png'), heatmap)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='main')
 
     # general options
     parser.add_argument('--operation', type=str, required=True, help='Operation to be performed]',
-                        choices=['Train', 'Test', 'Plot', 'Test_Full'])
+                        choices=['Train', 'Test', 'Plot', 'Test_Full', 'Saliency_Map_Test'])
     parser.add_argument('--output_path', type=str, required=True,
                         help='Path to save outcomes (such as images and trained models) of the algorithm.')
 
@@ -453,8 +517,8 @@ if __name__ == '__main__':
             # calculate patches to sample
             if args.dynamic_sampler and epoch % NEW_SAMPLE_INTERVAL == 0:
                 diff_maps = train_full_map(train_dataloader, criterion, model, epoch)
-                gen_classes = update_train_loader(diff_maps, train_dataset.distrib,
-                                                  train_dataset.crop_size, percentage=0.10)
+                gen_classes = update_train_loader_entropy(diff_maps, train_dataset.distrib,
+                                                          train_dataset.crop_size, percentage=0.10)
                 train_dataloader = sample_weight_train_loader(train_dataset, gen_classes, args.batch_size)
             scheduler.step()
     elif args.operation == 'Test':
@@ -531,6 +595,48 @@ if __name__ == '__main__':
         model.cuda()
 
         test_full_map(test_dataloader, criterion, model, epoch, args.output_path)
+    elif args.operation == 'Saliency_Map_Test':
+        print('---- saliency map test ----')
+
+        best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
+        index = 0
+        for i in range(len(best_records)):
+            if best_records[index]['kappa'] < best_records[i]['kappa']:
+                index = i
+
+        print('---- data ----')
+        if args.dataset == 'River':
+            test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
+                                      args.crop_size, args.stride_crop, output_path=args.output_path)
+        elif args.dataset == 'Orange':
+            test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
+                                            output_path=args.output_path)
+        elif args.dataset == 'Coffee':
+            test_dataset = DataLoaderCoffee('Test', args.dataset, args.dataset_path, args.testing_images,
+                                            args.crop_size, args.stride_crop, output_path=args.output_path)
+        elif args.dataset == 'Coffee_Full':
+            test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.stride_crop, output_path=args.output_path)
+        else:
+            raise NotImplementedError("Dataset " + args.dataset + " not implemented")
+
+        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=1,
+                                                      shuffle=False, num_workers=1, drop_last=False)
+
+        # network
+        if args.model == 'WideResNet':
+            model = LearntPrototypes(FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=False),
+                                     squared=False, n_prototypes=1, embedding_dim=2560)
+        else:
+            raise NotImplementedError("Network " + args.model + " not implemented")
+
+        epoch = int(best_records[index]['epoch'])
+        print("loading model_" + str(epoch) + '.pth')
+        model.load_state_dict(torch.load(os.path.join(args.output_path, 'model_' + str(epoch) + '.pth')))
+        model.cuda()
+
+        # saliency map
+        calculate_smooth_taylor(test_dataloader, model, args.output_path)
     elif args.operation == 'Plot':
         print('---- plotting ----')
         best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
