@@ -7,9 +7,9 @@ from utils import initialize_weights
 
 
 class FCNWideResNet50(nn.Module):
-    def __init__(self, num_classes, input_channels=None, pretrained=True, skip=True, classif=True):
+    def __init__(self, num_classes, input_channels=None, pretrained=True, skip_layers='2_4', classif=True):
         super(FCNWideResNet50, self).__init__()
-        self.skip = skip
+        self.skip_layers = skip_layers
         self.classif = classif
 
         # load pre-trained model
@@ -35,9 +35,23 @@ class FCNWideResNet50(nn.Module):
         self.layer4 = wideresnet.layer4  # output feat = 2048
 
         if self.classif:
-            if self.skip:
+            if self.skip_layers == '1_4':
                 self.classifier1 = nn.Sequential(
-                    nn.Conv2d(2048 + 512, 128, kernel_size=3, padding=1),
+                    nn.Conv2d(256 + 2048, 128, kernel_size=3, padding=1),
+                    nn.BatchNorm2d(128),
+                    nn.ReLU(),
+                    nn.Dropout2d(0.5),
+                )
+            elif self.skip_layers == '2_4':
+                self.classifier1 = nn.Sequential(
+                    nn.Conv2d(512 + 2048, 128, kernel_size=3, padding=1),
+                    nn.BatchNorm2d(128),
+                    nn.ReLU(),
+                    nn.Dropout2d(0.5),
+                )
+            elif self.skip_layers == '1_2_3_4':
+                self.classifier1 = nn.Sequential(
+                    nn.Conv2d(256 + 512 + 1024 + 2048, 128, kernel_size=3, padding=1),
                     nn.BatchNorm2d(128),
                     nn.ReLU(),
                     nn.Dropout2d(0.5),
@@ -58,22 +72,28 @@ class FCNWideResNet50(nn.Module):
             initialize_weights(self.final)
 
     def forward(self, x):
-        if self.skip:
+        fv_init = self.init(x)
+        fv1 = self.layer1(fv_init)
+        fv2 = self.layer2(fv1)
+        fv3 = self.layer3(fv2)
+        fv4 = self.layer4(fv3)
+
+        if self.skip_layers == '1_4':
             # Forward on FCN with Skip Connections.
-            fv_init = self.init(x)
-            fv1 = self.layer1(fv_init)
-            fv2 = self.layer2(fv1)
-            fv3 = self.layer3(fv2)
-            fv4 = self.layer4(fv3)
+            fv_final = torch.cat([F.interpolate(fv1, x.size()[2:], mode='bilinear', align_corners=False),
+                                  F.interpolate(fv4, x.size()[2:], mode='bilinear', align_corners=False)], 1)
+        elif self.skip_layers == '2_4':
+            # Forward on FCN with Skip Connections.
             fv_final = torch.cat([F.interpolate(fv2, x.size()[2:], mode='bilinear', align_corners=False),
+                                  F.interpolate(fv4, x.size()[2:], mode='bilinear', align_corners=False)], 1)
+        elif self.skip_layers == '1_2_3_4':
+            # Forward on FCN with Skip Connections.
+            fv_final = torch.cat([F.interpolate(fv1, x.size()[2:], mode='bilinear', align_corners=False),
+                                  F.interpolate(fv2, x.size()[2:], mode='bilinear', align_corners=False),
+                                  F.interpolate(fv3, x.size()[2:], mode='bilinear', align_corners=False),
                                   F.interpolate(fv4, x.size()[2:], mode='bilinear', align_corners=False)], 1)
         else:
             # Forward on FCN without Skip Connections.
-            fv_init = self.init(x)
-            fv1 = self.layer1(fv_init)
-            fv2 = self.layer2(fv1)
-            fv3 = self.layer3(fv2)
-            fv4 = self.layer4(fv3)
             fv_final = F.interpolate(fv4, x.size()[2:], mode='bilinear', align_corners=False)
 
         output = None

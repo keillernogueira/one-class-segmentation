@@ -44,7 +44,7 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def save_best_models(net, optimizer, output_path, best_records, epoch, kappa, num_saves=1, track_mean=None):
+def save_best_models(net, optimizer, output_path, best_records, epoch, kappa, num_saves=3, track_mean=None):
     if len(best_records) < num_saves:
         best_records.append({'epoch': epoch, 'kappa': kappa, 'track_mean': track_mean})
 
