@@ -31,39 +31,43 @@ class FCNDenseNet121(nn.Module):
 
         if self.classif:
             if self.skip_layers == '1_4':
-                self.classifier1 = nn.Sequential(
-                    nn.Conv2d(256 + 1024, 128, kernel_size=3, padding=1),
-                    nn.BatchNorm2d(128),
-                    nn.ReLU(),
-                    nn.Dropout2d(0.5),
-                )
+                feat_in = 128 + 1024
+                # self.classifier1 = nn.Sequential(
+                #     nn.Conv2d(128 + 1024, 128, kernel_size=3, padding=1),
+                #     nn.BatchNorm2d(128),
+                #     nn.ReLU(),
+                #     nn.Dropout2d(0.5),
+                # )
             elif self.skip_layers == '2_4':
-                self.classifier1 = nn.Sequential(
-                    nn.Conv2d(512 + 1024, 128, kernel_size=3, padding=1),
-                    nn.BatchNorm2d(128),
-                    nn.ReLU(),
-                    nn.Dropout2d(0.5),
-                )
+                feat_in = 256 + 1024
+                # self.classifier1 = nn.Sequential(
+                #     nn.Conv2d(256 + 1024, 128, kernel_size=3, padding=1),
+                #     nn.BatchNorm2d(128),
+                #     nn.ReLU(),
+                #     nn.Dropout2d(0.5),
+                # )
             elif self.skip_layers == '1_2_3_4':
-                self.classifier1 = nn.Sequential(
-                    nn.Conv2d(256 + 512 + 1024 + 1024, 128, kernel_size=3, padding=1),
-                    nn.BatchNorm2d(128),
-                    nn.ReLU(),
-                    nn.Dropout2d(0.5),
-                )
+                feat_in = 128 + 256 + 512 + 1024
+                # self.classifier1 = nn.Sequential(
+                #     nn.Conv2d(128 + 256 + 512 + 1024, 128, kernel_size=3, padding=1),
+                #     nn.BatchNorm2d(128),
+                #     nn.ReLU(),
+                #     nn.Dropout2d(0.5),
+                # )
             else:
-                self.classifier1 = nn.Sequential(
-                    nn.Conv2d(1024, 128, kernel_size=3, padding=1),
-                    nn.BatchNorm2d(128),
-                    nn.ReLU(),
-                    nn.Dropout2d(0.5),
-                )
-            self.final = nn.Conv2d(128, num_classes, kernel_size=3, padding=1)
+                feat_in = 1024
+                # self.classifier1 = nn.Sequential(
+                #     nn.Conv2d(1024, 128, kernel_size=3, padding=1),
+                #     nn.BatchNorm2d(128),
+                #     nn.ReLU(),
+                #     nn.Dropout2d(0.5),
+                # )
+            self.final = nn.Conv2d(feat_in, num_classes, kernel_size=3, padding=1)
 
         if not pretrained:
             initialize_weights(self)
         elif self.classif:
-            initialize_weights(self.classifier1)
+            # initialize_weights(self.classifier1)
             initialize_weights(self.final)
 
     def forward(self, x, feat=False):
@@ -93,7 +97,7 @@ class FCNDenseNet121(nn.Module):
 
         output = None
         if self.classif:
-            classif1 = self.classifier1(fv_final)
-            output = self.final(classif1)
+            # classif1 = self.classifier1(fv_final)
+            output = self.final(fv_final)
 
         return output, fv_final

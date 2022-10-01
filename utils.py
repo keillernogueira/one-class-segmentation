@@ -4,6 +4,7 @@ import argparse
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+import imageio
 
 from sklearn import decomposition
 from sklearn.manifold import TSNE
@@ -242,3 +243,13 @@ def predict_map(occur_im, feat_flat, track_mean, maps, curxs, curys):
         occur_im[cur_x:cur_x + h, cur_y:cur_y + w, 1] += pred[i, :, :]
     return occur_im
 
+
+def calculate_mask_distribution(dataset_path, images):
+    overall_distr = np.zeros(2)
+    for img in images:
+        temp_mask = imageio.imread(os.path.join(dataset_path, img + '.tif')).astype(int)
+        print(temp_mask.shape)
+        bin = np.bincount(temp_mask.flatten(), minlength=2)
+        print("bin ", img, bin)
+        overall_distr += bin
+    print("overall distr", overall_distr)

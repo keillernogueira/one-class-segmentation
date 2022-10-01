@@ -549,6 +549,14 @@ if __name__ == '__main__':
         if args.model == 'WideResNet':
             model = LearntPrototypes(FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=False),
                                      squared=False, n_prototypes=1, embedding_dim=2560)
+        elif args.model == 'WideResNet_4':
+            model = LearntPrototypes(FCNWideResNet50(test_dataset.num_classes, pretrained=True,
+                                                     skip_layers='1_2_3_4', classif=False),
+                                     squared=True, n_prototypes=1, embedding_dim=3840)
+        elif args.model == 'DenseNet121':
+            model = LearntPrototypes(FCNDenseNet121(test_dataset.num_classes, pretrained=True,
+                                                    skip_layers='1_2_3_4', classif=False),
+                                     squared=True, n_prototypes=1, embedding_dim=1920)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 

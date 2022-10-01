@@ -19,6 +19,7 @@ from config import *
 from utils import *
 from networks.FCNWideResNet50 import FCNWideResNet50
 from networks.efficientnet import FCNEfficientNetB0
+from networks.FCNDenseNet121 import FCNDenseNet121
 from focal_loss import BinaryFocalLoss, FocalLossV2
 
 
@@ -260,7 +261,7 @@ if __name__ == '__main__':
 
     # model options
     parser.add_argument('--model', type=str, required=True, default=None,
-                        help='Model to be used.', choices=['WideResNet', 'EfficientNetB0'])
+                        help='Model to be used.', choices=['WideResNet', 'EfficientNetB0', 'DenseNet121'])
     parser.add_argument('--loss', type=str, required=True, default=None,
                         help='Loss function to be used.', choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
@@ -316,12 +317,7 @@ if __name__ == '__main__':
             train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                                            shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
         else:
-            class_loader_weights = 1. / np.bincount(train_dataset.gen_classes)
-            samples_weights = class_loader_weights[train_dataset.gen_classes]
-            sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weights, len(samples_weights),
-                                                                     replacement=True)
-            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                           num_workers=NUM_WORKERS, drop_last=False, sampler=sampler)
+            train_dataloader = sample_weight_train_loader(train_dataset, train_dataset.gen_classes, args.batch_size)
 
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
@@ -329,7 +325,9 @@ if __name__ == '__main__':
         # network
         if args.model == 'WideResNet':
             model = FCNWideResNet50(1 if 'Binary' in args.loss else train_dataset.num_classes,
-                                    pretrained=True, classif=True)
+                                    pretrained=True, skip_layers='2_4', classif=True)
+        elif args.model == 'DenseNet121':
+            model = FCNDenseNet121(train_dataset.num_classes, pretrained=True, skip_layers='1_2_3_4', classif=True)
         elif args.model == 'EfficientNetB0':
             model = FCNEfficientNetB0(1 if 'Binary' in args.loss else train_dataset.num_classes,
                                       pretrained=True, classif=True)

@@ -65,14 +65,11 @@ class DataLoader(data.Dataset):
                 images.append(temp_image[:, :, 0:3])
                 masks.append(temp_mask)
             except:
-                print('error - exception')
-                temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_input_path, img)))
-                temp_mask = imageio.imread(os.path.join(self.dataset_input_path,
-                                                        img.replace('jp2', 'tif'))).astype(int)[:, :, 0]
-                images.append(temp_image[:, :, 0:3])
-                temp_mask[np.where(temp_mask == 255)] = 1
+                temp_mask = imageio.imread(os.path.join(self.dataset_input_path, img + '_mask.tif')).astype(int)
+                temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_input_path, img + '_image.jp2')))
+                images.append(temp_image)
                 masks.append(temp_mask)
-            print(img, temp_image.shape, temp_mask.shape)
+            print(img, temp_image.shape, temp_mask.shape, np.bincount(temp_mask.flatten()))
 
         return images, masks
 
