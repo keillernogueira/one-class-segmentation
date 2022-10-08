@@ -23,7 +23,7 @@ from networks.FCNDenseNet121 import FCNDenseNet121
 from focal_loss import BinaryFocalLoss, FocalLossV2
 
 
-def test_full_map(test_loader, net, epoch, output_path):
+def test_full_map_one_map(test_loader, net, epoch, output_path):
     # Setting network for evaluation mode.
     net.eval()
 
@@ -100,6 +100,125 @@ def test_full_map(test_loader, net, epoch, output_path):
           " Jaccard= " + "{:.4f}".format(jaccard) +
           " Tau= " + "{:.4f}".format(tau) +
           " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
+          )
+
+    sys.stdout.flush()
+
+
+def test_full_map(test_loader, net, epoch, output_path):
+    # Setting network for evaluation mode.
+    net.eval()
+
+    average_acc = 0.0
+    average_n_acc = 0.0
+    average_conf_m = np.zeros((2, 2))
+    average_f1_s_w = 0.0
+    average_f1_s_micro = 0.0
+    average_f1_s_macro = 0.0
+    average_kappa = 0.0
+    average_jaccard = 0.0
+    average_tau = 0.0
+
+    prob_im = []
+    occur_im = []
+    for i in range(len(test_loader.dataset.labels)):
+        prob_im.append(np.zeros([test_loader.dataset.labels[i].shape[0], test_loader.dataset.labels[i].shape[1],
+                                 test_loader.dataset.num_classes], dtype=np.float32))
+        occur_im.append(np.zeros([test_loader.dataset.labels[i].shape[0], test_loader.dataset.labels[i].shape[1],
+                                  test_loader.dataset.num_classes], dtype=int))
+
+    with torch.no_grad():
+        # Iterating over batches.
+        for i, data in enumerate(test_loader):
+            # Obtaining images, labels and paths for batch.
+            inps, labs, cur_maps, cur_xs, cur_ys = data
+
+            # Casting to cuda variables.
+            inps_c = Variable(inps).cuda()
+            # labs_c = Variable(labs).cuda()
+
+            # Forwarding.
+            outs, _ = net(inps_c)
+            # Computing probabilities.
+            soft_outs = F.softmax(outs, dim=1)
+
+            for j in range(soft_outs.shape[0]):
+                cur_map = cur_maps[j]
+                cur_x = cur_xs[j]
+                cur_y = cur_ys[j]
+
+                soft_outs_p = soft_outs.permute(0, 2, 3, 1).cpu().detach().numpy()
+
+                prob_im[cur_map][cur_x:cur_x + test_loader.dataset.crop_size,
+                cur_y:cur_y + test_loader.dataset.crop_size, :] += soft_outs_p[j, :, :, :]
+                occur_im[cur_map][cur_x:cur_x + test_loader.dataset.crop_size,
+                cur_y:cur_y + test_loader.dataset.crop_size, :] += 1
+
+    for i, img in enumerate(test_loader.dataset.images):
+        occur_im[i][np.where(occur_im[i] == 0)] = 1
+        prob_im_argmax = np.argmax(prob_im[i] / occur_im[i].astype(float), axis=-1)
+        print('test_full check', prob_im_argmax.shape, np.bincount(prob_im_argmax.flatten()),
+              test_loader.dataset.labels[i].shape, np.bincount(test_loader.dataset.labels[i].flatten()))
+
+        # pixel outside area should be 0 for the final image
+        prob_im_argmax[np.where(test_loader.dataset.labels[i] == 2)] = 0
+        # Saving predictions.
+        imageio.imwrite(os.path.join(output_path, img + '_pred.png'), prob_im_argmax * 255)
+
+        # filtering out pixels
+        labs = test_loader.dataset.labels[i]
+        coord = np.where(labs != 2)
+        labs = labs[coord]
+        prds = prob_im_argmax[coord]
+        print(labs.shape, prds.shape, np.bincount(labs.flatten()), np.bincount(prds.flatten()))
+
+        acc = accuracy_score(labs, prds)
+        conf_m = confusion_matrix(labs, prds)
+        f1_s_w = f1_score(labs, prds, average='weighted')
+        f1_s_micro = f1_score(labs, prds, average='micro')
+        f1_s_macro = f1_score(labs, prds, average='macro')
+        kappa = cohen_kappa_score(labs, prds)
+        jaccard = jaccard_score(labs, prds)
+        tau, p = stats.kendalltau(labs, prds)
+
+        _sum = 0.0
+        for k in range(len(conf_m)):
+            _sum += (conf_m[k][k] / float(np.sum(conf_m[k])) if np.sum(conf_m[k]) != 0 else 0)
+
+        average_acc += acc
+        average_n_acc += _sum / float(outs.shape[1])
+        average_conf_m += conf_m
+        average_f1_s_w += f1_s_w
+        average_f1_s_micro += f1_s_micro
+        average_f1_s_macro += f1_s_macro
+        average_kappa += kappa
+        average_jaccard += jaccard
+        average_tau += tau
+
+        print("---- Validation/Test -- Image: " + img + " -- Epoch " + str(epoch) +
+              " -- Time " + str(datetime.datetime.now().time()) +
+              " Overall Accuracy= " + "{:.4f}".format(acc) +
+              " Normalized Accuracy= " + "{:.4f}".format(_sum / float(outs.shape[1])) +
+              " F1 score weighted= " + "{:.4f}".format(f1_s_w) +
+              " F1 score micro= " + "{:.4f}".format(f1_s_micro) +
+              " F1 score macro= " + "{:.4f}".format(f1_s_macro) +
+              " Kappa= " + "{:.4f}".format(kappa) +
+              " Jaccard= " + "{:.4f}".format(jaccard) +
+              " Tau= " + "{:.4f}".format(tau) +
+              " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
+              )
+
+    print("---- Validation/Test -- OVERALL -- Epoch " + str(epoch) +
+          " -- Time " + str(datetime.datetime.now().time()) +
+          " Overall Accuracy= " + "{:.4f}".format(average_acc / float(len(test_loader.dataset.images))) +
+          " Normalized Accuracy= " + "{:.4f}".format(average_n_acc / float(len(test_loader.dataset.images))) +
+          " F1 score weighted= " + "{:.4f}".format(average_f1_s_w / float(len(test_loader.dataset.images))) +
+          " F1 score micro= " + "{:.4f}".format(average_f1_s_micro / float(len(test_loader.dataset.images))) +
+          " F1 score macro= " + "{:.4f}".format(average_f1_s_macro / float(len(test_loader.dataset.images))) +
+          " Kappa= " + "{:.4f}".format(average_kappa / float(len(test_loader.dataset.images))) +
+          " Jaccard= " + "{:.4f}".format(average_jaccard / float(len(test_loader.dataset.images))) +
+          " Tau= " + "{:.4f}".format(average_tau / float(len(test_loader.dataset.images))) +
+          " Confusion Matrix= " + np.array_str(average_conf_m).replace("\n", "")
           )
 
     sys.stdout.flush()
@@ -440,6 +559,8 @@ if __name__ == '__main__':
         # network
         if args.model == 'WideResNet':
             model = FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=True)
+        elif args.model == 'DenseNet121':
+            model = FCNDenseNet121(test_dataset.num_classes, pretrained=True, skip_layers='1_2_3_4', classif=True)
         elif args.model == 'EfficientNetB0':
             model = FCNEfficientNetB0(1 if 'Binary' in args.loss else test_dataset.num_classes,
                                       pretrained=True, classif=True)
