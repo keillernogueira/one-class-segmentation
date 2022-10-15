@@ -150,9 +150,9 @@ def test_full_map(test_loader, net, epoch, output_path):
                 soft_outs_p = soft_outs.permute(0, 2, 3, 1).cpu().detach().numpy()
 
                 prob_im[cur_map][cur_x:cur_x + test_loader.dataset.crop_size,
-                cur_y:cur_y + test_loader.dataset.crop_size, :] += soft_outs_p[j, :, :, :]
+                                 cur_y:cur_y + test_loader.dataset.crop_size, :] += soft_outs_p[j, :, :, :]
                 occur_im[cur_map][cur_x:cur_x + test_loader.dataset.crop_size,
-                cur_y:cur_y + test_loader.dataset.crop_size, :] += 1
+                                  cur_y:cur_y + test_loader.dataset.crop_size, :] += 1
 
     for i, img in enumerate(test_loader.dataset.images):
         occur_im[i][np.where(occur_im[i] == 0)] = 1
