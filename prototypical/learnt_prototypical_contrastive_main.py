@@ -499,7 +499,7 @@ if __name__ == '__main__':
                                        args.crop_size, args.stride_crop, output_path=args.output_path, crop=args.crop)
             print('---- testing data ----')
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
-                                      args.crop_size, args.stride_crop,
+                                      args.crop_size, args.crop_size,  # args.stride_crop,
                                       mean=train_dataset.mean, std=train_dataset.std, crop=args.crop)
         elif args.dataset == 'Coffee_Crop':
             print('---- training data ----')
@@ -642,11 +642,17 @@ if __name__ == '__main__':
     elif args.operation == 'Test_Full':
         print('---- testing ----')
 
-        best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
-        index = 0
-        for i in range(len(best_records)):
-            if best_records[index]['kappa'] < best_records[i]['kappa']:
-                index = i
+        if args.model_path is None:
+            best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
+            index = 0
+            for i in range(len(best_records)):
+                if best_records[index]['kappa'] < best_records[i]['kappa']:
+                    index = i
+            epoch = int(best_records[index]['epoch'])
+            cur_model = 'model_' + str(epoch) + '.pth'
+        else:
+            epoch = int(args.model_path[:-4].split('_')[-1])
+            cur_model = args.model_path
 
         print('---- data ----')
         if args.dataset == 'River':
@@ -685,9 +691,8 @@ if __name__ == '__main__':
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 
-        epoch = int(best_records[index]['epoch'])
         print("loading model_" + str(epoch) + '.pth')
-        model.load_state_dict(torch.load(os.path.join(args.output_path, 'model_' + str(epoch) + '.pth')))
+        model.load_state_dict(torch.load(os.path.join(args.output_path, cur_model)))
         model.cuda()
 
         test_full_map(test_dataloader, criterion, model, epoch, args.output_path)

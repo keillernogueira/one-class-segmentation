@@ -1,10 +1,13 @@
 import os
 import sys
 import random
-from skimage import transform
+import argparse
 
+from skimage import transform
+import imageio
 import scipy
 import numpy as np
+from skimage.morphology import dilation, square, disk
 
 
 def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River', return_all=False):
@@ -66,7 +69,7 @@ def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River',
                                 counter[0] += 1
                                 binc[0] += count[0:2]
                 else:
-                    # dataset River and Orange and coffee crop
+                    # dataset River, Orange, coffee crop, and road
                     if count[1] != 0:
                         # if count[1] > percentage_pos_class * count[0]:
                         instances[1].append((cur_map, cur_x, cur_y, count))
@@ -258,7 +261,7 @@ def dynamically_calculate_mean_and_std(data, distrib, crop_size):
             all_patches = []
 
     # remaining images
-    print(np.asarray(all_patches).shape)
+    print('remaining images', np.asarray(all_patches).shape)
     mean, std = compute_image_mean(np.asarray(all_patches))
     mean_full.append(mean)
     std_full.append(std)
@@ -310,3 +313,27 @@ def data_augmentation(img, label):
     label = label.astype(np.int64)
 
     return img, label
+
+
+def dilate_gt(input_path, output_path, save_readable=False):
+    img = imageio.imread(input_path)[:, :, 0]
+    print('before dilation', img.shape, np.bincount(img.astype(int).flatten()))
+
+    dil_out = dilation(img, disk(3))
+    dil_out[np.where(dil_out == 255)] = 1
+    print('after dilation', img.shape, np.bincount(dil_out.astype(int).flatten()))
+
+    imageio.imwrite(output_path, dil_out)
+    if save_readable:
+        print('after dilation 2', img.shape, np.bincount(dil_out.astype(int).flatten()))
+        imageio.imwrite(os.path.splitext(output_path)[0] + '_readable.png', dil_out * 255)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='data_utils.py')
+
+    parser.add_argument('--input_file', type=str, required=True)
+    parser.add_argument('--output_file', type=str, required=True)
+    args = parser.parse_args()
+
+    dilate_gt(args.input_file, args.output_file, save_readable=True)

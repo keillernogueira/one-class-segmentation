@@ -11,6 +11,7 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 
 from dataloaders.dataloader import DataLoader
+from dataloaders.dataloader_road import DataLoaderRoad
 from dataloaders.dataloader_orange import DataLoaderOrange
 from dataloaders.dataloader_coffee import DataLoaderCoffee
 from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
@@ -371,7 +372,7 @@ if __name__ == '__main__':
 
     # dataset options
     parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
-                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full'])
+                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full', 'Road'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
     parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
     parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
@@ -404,8 +405,16 @@ if __name__ == '__main__':
                                        args.crop_size, args.stride_crop, output_path=args.output_path, crop=args.crop)
             print('---- testing data ----')
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
-                                      args.crop_size, args.stride_crop,
+                                      args.crop_size, args.crop_size,  # args.stride_crop,
                                       mean=train_dataset.mean, std=train_dataset.std, crop=args.crop)
+        elif args.dataset == 'Road':
+            print('---- training data ----')
+            train_dataset = DataLoaderRoad('Train', args.dataset, args.dataset_path, args.training_images,
+                                           args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.crop_size,
+                                          mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Orange':
             print('---- training data ----')
             train_dataset = DataLoaderOrange('Train', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
@@ -490,7 +499,7 @@ if __name__ == '__main__':
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay,
                                betas=(0.9, 0.99))
 
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=25, gamma=0.1)  # original 50, epoch 500
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
 
         # load model and readjust scheduler
