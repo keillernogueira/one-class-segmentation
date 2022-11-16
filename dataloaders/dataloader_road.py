@@ -50,7 +50,7 @@ class DataLoaderRoad(data.Dataset):
         for img in self.images:
             temp_image = img_as_float(imageio.imread(os.path.join(self.dataset_path, 'area' + str(img) +
                                                                   '_landsat8_toa_2013_pansharpen.tif')))
-            temp_mask = imageio.imread(os.path.join(self.dataset_path, 'area' + str(img) + '_mask_dilated.png'))
+            temp_mask = imageio.imread(os.path.join(self.dataset_path, 'area' + str(img) + '_mask_dilated_disk3.png'))
             temp_image[np.where(np.isnan(temp_image))] = 0  # replace nan values with 0's
             images.append(temp_image)
             masks.append(temp_mask)

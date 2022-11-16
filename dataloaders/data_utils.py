@@ -319,7 +319,7 @@ def dilate_gt(input_path, output_path, save_readable=False):
     img = imageio.imread(input_path)[:, :, 0]
     print('before dilation', img.shape, np.bincount(img.astype(int).flatten()))
 
-    dil_out = dilation(img, disk(3))
+    dil_out = dilation(img, disk(1))
     dil_out[np.where(dil_out == 255)] = 1
     print('after dilation', img.shape, np.bincount(dil_out.astype(int).flatten()))
 
