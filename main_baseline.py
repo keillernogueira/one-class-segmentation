@@ -15,6 +15,8 @@ from dataloaders.dataloader_road import DataLoaderRoad
 from dataloaders.dataloader_orange import DataLoaderOrange
 from dataloaders.dataloader_coffee import DataLoaderCoffee
 from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
+from dataloaders.dataloader_coffee_crop import DataLoaderCoffeeCrop
+from dataloaders.dataloader_tree import DataLoaderTree
 
 from config import *
 from utils import *
@@ -372,7 +374,7 @@ if __name__ == '__main__':
 
     # dataset options
     parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
-                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full', 'Road'])
+                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full', 'Road', 'Coffee_Crop', 'Tree'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
     parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
     parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
@@ -415,6 +417,14 @@ if __name__ == '__main__':
             test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
                                           args.crop_size, args.crop_size,
                                           mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Tree':
+            print('---- training data ----')
+            train_dataset = DataLoaderTree('Train', args.dataset, args.dataset_path, args.training_images,
+                                           args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderTree('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.crop_size,
+                                          mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Orange':
             print('---- training data ----')
             train_dataset = DataLoaderOrange('Train', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
@@ -437,6 +447,14 @@ if __name__ == '__main__':
             print('---- testing data ----')
             test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
                                                 args.crop_size, args.stride_crop,
+                                                mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Coffee_Crop':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffeeCrop('Train', args.dataset, args.dataset_path, args.training_images,
+                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffeeCrop('Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.crop_size,
                                                 mean=train_dataset.mean, std=train_dataset.std)
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
@@ -550,14 +568,34 @@ if __name__ == '__main__':
         print('---- testing ----')
         # assert args.model_path is not None, "For inference, flag --model_path should be set."
 
+        if args.model_path is None:
+            print('loading from best_records')
+            best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
+            index = 0
+            for i in range(len(best_records)):
+                if best_records[index]['kappa'] < best_records[i]['kappa']:
+                    index = i
+            epoch = int(best_records[index]['epoch'])
+            cur_model = 'model_' + str(epoch) + '.pth'
+        else:
+            print('loading from args.model_path')
+            epoch = int(args.model_path[:-4].split('_')[-1])
+            cur_model = args.model_path
+
         if args.dataset == 'River':
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
                                       args.crop_size, args.stride_crop, output_path=args.output_path)
+        elif args.dataset == 'Road':
+            test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.crop_size, output_path=args.output_path)
         elif args.dataset == 'Orange':
             test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
                                             output_path=args.output_path)
         elif args.dataset == 'Coffee_Full':
             test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.stride_crop, output_path=args.output_path)
+        elif args.dataset == 'Coffee_Crop':
+            test_dataset = DataLoaderCoffeeCrop('Test', args.dataset, args.dataset_path, args.testing_images,
                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
@@ -576,11 +614,8 @@ if __name__ == '__main__':
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 
-        epoch = 0
-        if args.model_path is not None:
-            print("Loading model")
-            model.load_state_dict(torch.load(args.model_path))
-            epoch = int(os.path.basename(args.model_path)[:-4].split('_')[-1])
+        print("Loading model " + cur_model)
+        model.load_state_dict(torch.load(os.path.join(args.output_path, cur_model)))
         model.cuda()
 
         test_full_map(test_dataloader, model, epoch, args.output_path)

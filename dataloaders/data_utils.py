@@ -39,7 +39,7 @@ def create_distrib(labels, crop_size, stride_size, num_classes, dataset='River',
                     "Error create_distrib: Current patch size is " + str(len(patch_class)) + "x" + str(len(patch_class[0]))
 
                 count = np.bincount(patch_class.astype(int).flatten(), minlength=2)
-                if dataset == 'Coffee':
+                if dataset == 'Coffee' or dataset == 'Tree':
                     if count[1] >= count[0]:
                         instances[1].append((cur_map, cur_x, cur_y, count))
                         counter[1] += 1

@@ -13,6 +13,7 @@ from torch.autograd import Variable
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 from dataloaders.dataloader import DataLoader
+from dataloaders.dataloader_road import DataLoaderRoad
 from dataloaders.dataloader_orange import DataLoaderOrange
 from dataloaders.dataloader_coffee import DataLoaderCoffee
 from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
@@ -459,7 +460,7 @@ if __name__ == '__main__':
 
     # dataset options
     parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
-                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full', 'Coffee_Crop'])
+                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full', 'Coffee_Crop', 'Road'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
     parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
     parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
@@ -501,13 +502,21 @@ if __name__ == '__main__':
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
                                       args.crop_size, args.crop_size,  # args.stride_crop,
                                       mean=train_dataset.mean, std=train_dataset.std, crop=args.crop)
+        elif args.dataset == 'Road':
+            print('---- training data ----')
+            train_dataset = DataLoaderRoad('Train', args.dataset, args.dataset_path, args.training_images,
+                                           args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.crop_size,
+                                          mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Coffee_Crop':
             print('---- training data ----')
             train_dataset = DataLoaderCoffeeCrop('Train', args.dataset, args.dataset_path, args.training_images,
                                                  args.crop_size, args.stride_crop, output_path=args.output_path)
             print('---- testing data ----')
             test_dataset = DataLoaderCoffeeCrop('Test', args.dataset, args.dataset_path, args.testing_images,
-                                                args.crop_size, args.stride_crop,
+                                                args.crop_size, args.crop_size,
                                                 mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Orange':
             print('---- training data ----')
@@ -667,6 +676,12 @@ if __name__ == '__main__':
         elif args.dataset == 'Coffee_Full':
             test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
+        elif args.dataset == 'Coffee_Crop':
+            test_dataset = DataLoaderCoffeeCrop('Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.stride_crop, output_path=args.output_path)
+        elif args.dataset == 'Road':
+            test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.stride_crop, output_path=args.output_path)
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
 
