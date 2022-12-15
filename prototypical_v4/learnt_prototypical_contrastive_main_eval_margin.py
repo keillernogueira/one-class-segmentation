@@ -1,9 +1,9 @@
 import gc
-import os
 import sys
+import os
 import datetime
 import imageio
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score, jaccard_score
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score
 import scipy.stats as stats
 
 import torch
@@ -13,20 +13,13 @@ from torch.autograd import Variable
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 from dataloaders.dataloader import DataLoader
-from dataloaders.dataloader_road import DataLoaderRoad
 from dataloaders.dataloader_orange import DataLoaderOrange
 from dataloaders.dataloader_coffee import DataLoaderCoffee
 from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
-from dataloaders.dataloader_coffee_crop import DataLoaderCoffeeCrop
-from dataloaders.dataloader_tree import DataLoaderTree
 
 from config import *
 from utils import *
-from dataloaders.data_utils import update_train_loader
 from networks.FCNWideResNet50 import FCNWideResNet50
-from networks.efficientnet import FCNEfficientNetB0
-from networks.FCNDenseNet121 import FCNDenseNet121
-from networks.unet import UNet
 
 from feat_ext import general_feature_extractor
 from contrastive_loss import ContrastiveLoss
@@ -34,7 +27,7 @@ from contrastive_loss_double_margin import ContrastiveLossDoubleMargin
 from learnt_prototypical import LearntPrototypes
 
 
-def test_full_map_one_map(test_loader, criterion, net, epoch, output_path):
+def test_full_map(test_loader, criterion, net, epoch, output_path):
     # Setting network for evaluation mode.
     net.eval()
 
@@ -55,21 +48,25 @@ def test_full_map_one_map(test_loader, criterion, net, epoch, output_path):
 
             # Forwarding.
             outs = net(inps_c)
-            outs_p = -outs.permute(0, 2, 3, 1).cpu().detach().numpy()
 
             for j in range(outs.shape[0]):
                 # cur_map = cur_maps[j]
                 cur_x = cur_xs[j]
                 cur_y = cur_ys[j]
 
+                outs_p = -outs.permute(0, 2, 3, 1).cpu().detach().numpy()
+
                 prob_im[cur_x:cur_x + test_loader.dataset.crop_size,
                         cur_y:cur_y + test_loader.dataset.crop_size] += outs_p[j, :, :, 0]
                 occur_im[cur_x:cur_x + test_loader.dataset.crop_size,
                          cur_y:cur_y + test_loader.dataset.crop_size] += 1
 
-    # normalise to remove non-predicted pixels
-    occur_im[np.where(occur_im == 0)] = 1
+    if test_loader.dataset.dataset == 'Orange':
+        pred_pos = np.where(occur_im.flatten() >= 1)
 
+    # normalise to remove non-predicted pixels
+    prob_im[np.where(occur_im == 0)] = 1
+    occur_im[np.where(occur_im == 0)] = 1
     # prob_im_argmax = ((prob_im / occur_im.astype(float)) <= 0.999).astype(int)  # v1
     if hasattr(criterion, 'pos_margin'):
         prob_im_argmax = ((prob_im / occur_im.astype(float)) < criterion.pos_margin).astype(int)
@@ -83,11 +80,14 @@ def test_full_map_one_map(test_loader, criterion, net, epoch, output_path):
     # Saving predictions.
     imageio.imwrite(os.path.join(output_path, 'proto_prd.png'), prob_im_argmax*255)
 
-    if test_loader.dataset.dataset == 'Coffee_Full' or test_loader.dataset.dataset == 'Orange':
+    if test_loader.dataset.dataset == 'Coffee_Full':
         labs = test_loader.dataset.labels[0]
         coord = np.where(labs != 2)
         lbl = labs[coord]
         pred = prob_im_argmax[coord]
+    elif test_loader.dataset.dataset == 'Orange':
+        lbl = test_loader.dataset.labels[0].flatten()[pred_pos]
+        pred = prob_im_argmax.flatten()[pred_pos]
     else:
         lbl = test_loader.dataset.labels[0].flatten()
         pred = prob_im_argmax.flatten()
@@ -100,7 +100,6 @@ def test_full_map_one_map(test_loader, criterion, net, epoch, output_path):
     f1_s_micro = f1_score(lbl, pred, average='micro')
     f1_s_macro = f1_score(lbl, pred, average='macro')
     kappa = cohen_kappa_score(lbl, pred)
-    jaccard = jaccard_score(lbl, pred)
     tau, p = stats.kendalltau(lbl, pred)
 
     _sum = 0.0
@@ -115,7 +114,6 @@ def test_full_map_one_map(test_loader, criterion, net, epoch, output_path):
           " F1 score micro= " + "{:.4f}".format(f1_s_micro) +
           " F1 score macro= " + "{:.4f}".format(f1_s_macro) +
           " Kappa= " + "{:.4f}".format(kappa) +
-          " Jaccard= " + "{:.4f}".format(jaccard) +
           " Tau= " + "{:.4f}".format(tau) +
           " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
           )
@@ -123,132 +121,7 @@ def test_full_map_one_map(test_loader, criterion, net, epoch, output_path):
     sys.stdout.flush()
 
 
-def test_full_map(test_loader, criterion, net, epoch, output_path):
-    # Setting network for evaluation mode.
-    net.eval()
-
-    average_acc = 0.0
-    average_n_acc = 0.0
-    average_conf_m = np.zeros((2, 2))
-    average_f1_s_w = 0.0
-    average_f1_s_micro = 0.0
-    average_f1_s_macro = 0.0
-    average_kappa = 0.0
-    average_jaccard = 0.0
-    average_tau = 0.0
-
-    prob_im = []
-    occur_im = []
-    for i in range(len(test_loader.dataset.labels)):
-        prob_im.append(np.zeros([test_loader.dataset.labels[i].shape[0],
-                                 test_loader.dataset.labels[i].shape[1]], dtype=np.float32))
-        occur_im.append(np.zeros([test_loader.dataset.labels[i].shape[0],
-                                  test_loader.dataset.labels[i].shape[1]], dtype=int))
-
-    with torch.no_grad():
-        # Iterating over batches.
-        for i, data in enumerate(test_loader):
-            # Obtaining images, labels and paths for batch.
-            inps, labs, cur_maps, cur_xs, cur_ys = data
-
-            # Casting to cuda variables.
-            inps_c = Variable(inps).cuda()
-            # labs_c = Variable(labs).cuda()
-
-            # Forwarding.
-            outs = net(inps_c)
-            outs_p = -outs.permute(0, 2, 3, 1).cpu().detach().numpy()
-
-            for j in range(outs.shape[0]):
-                cur_map = cur_maps[j]
-                cur_x = cur_xs[j]
-                cur_y = cur_ys[j]
-
-                prob_im[cur_map][cur_x:cur_x + test_loader.dataset.crop_size,
-                                 cur_y:cur_y + test_loader.dataset.crop_size] += outs_p[j, :, :, 0]
-                occur_im[cur_map][cur_x:cur_x + test_loader.dataset.crop_size,
-                                  cur_y:cur_y + test_loader.dataset.crop_size] += 1
-
-    for i, img in enumerate(test_loader.dataset.images):
-        # normalise to remove non-predicted pixels
-        occur_im[i][np.where(occur_im[i] == 0)] = 1
-
-        if hasattr(criterion, 'pos_margin'):
-            prob_im_argmax = ((prob_im[i] / occur_im[i].astype(float)) < criterion.pos_margin).astype(int)
-        else:
-            prob_im_argmax = ((prob_im[i] / occur_im[i].astype(float)) < criterion.margin).astype(int)
-        print(prob_im_argmax.shape, np.bincount(prob_im_argmax.flatten()),
-              test_loader.dataset.labels[i].shape, np.bincount(test_loader.dataset.labels[i].flatten()))
-
-        # pixel outside area should be 0 for the final image
-        prob_im_argmax[np.where(test_loader.dataset.labels[i] == 2)] = 0
-        # Saving predictions.
-        imageio.imwrite(os.path.join(output_path, img + '_pred.png'), prob_im_argmax*255)
-
-        if test_loader.dataset.dataset == 'Coffee_Full' or test_loader.dataset.dataset == 'Orange':
-            labs = test_loader.dataset.labels[i]
-            coord = np.where(labs != 2)
-            lbl = labs[coord]
-            pred = prob_im_argmax[coord]
-        else:
-            lbl = test_loader.dataset.labels[i].flatten()
-            pred = prob_im_argmax.flatten()
-
-        print(lbl.shape, np.bincount(lbl.flatten()), pred.shape, np.bincount(pred.flatten()))
-
-        acc = accuracy_score(lbl, pred)
-        conf_m = confusion_matrix(lbl, pred)
-        f1_s_w = f1_score(lbl, pred, average='weighted')
-        f1_s_micro = f1_score(lbl, pred, average='micro')
-        f1_s_macro = f1_score(lbl, pred, average='macro')
-        kappa = cohen_kappa_score(lbl, pred)
-        jaccard = jaccard_score(lbl, pred)
-        tau, p = stats.kendalltau(lbl, pred)
-
-        _sum = 0.0
-        for k in range(len(conf_m)):
-            _sum += (conf_m[k][k] / float(np.sum(conf_m[k])) if np.sum(conf_m[k]) != 0 else 0)
-
-        average_acc += acc
-        average_n_acc += _sum / float(2.0)
-        average_conf_m += conf_m
-        average_f1_s_w += f1_s_w
-        average_f1_s_micro += f1_s_micro
-        average_f1_s_macro += f1_s_macro
-        average_kappa += kappa
-        average_jaccard += jaccard
-        average_tau += tau
-
-        print("---- Validation/Test -- Image: " + img + " -- Epoch " + str(epoch) +
-              " -- Time " + str(datetime.datetime.now().time()) +
-              " Overall Accuracy= " + "{:.4f}".format(acc) +
-              " Normalized Accuracy= " + "{:.4f}".format(_sum / float(2.0)) +
-              " F1 score weighted= " + "{:.4f}".format(f1_s_w) +
-              " F1 score micro= " + "{:.4f}".format(f1_s_micro) +
-              " F1 score macro= " + "{:.4f}".format(f1_s_macro) +
-              " Kappa= " + "{:.4f}".format(kappa) +
-              " Jaccard= " + "{:.4f}".format(jaccard) +
-              " Tau= " + "{:.4f}".format(tau) +
-              " Confusion Matrix= " + np.array_str(conf_m).replace("\n", "")
-              )
-
-    print("---- Validation/Test -- OVERALL -- Epoch " + str(epoch) +
-          " -- Time " + str(datetime.datetime.now().time()) +
-          " Overall Accuracy= " + "{:.4f}".format(average_acc / float(len(test_loader.dataset.images))) +
-          " Normalized Accuracy= " + "{:.4f}".format(average_n_acc / float(len(test_loader.dataset.images))) +
-          " F1 score weighted= " + "{:.4f}".format(average_f1_s_w / float(len(test_loader.dataset.images))) +
-          " F1 score micro= " + "{:.4f}".format(average_f1_s_micro / float(len(test_loader.dataset.images))) +
-          " F1 score macro= " + "{:.4f}".format(average_f1_s_macro / float(len(test_loader.dataset.images))) +
-          " Kappa= " + "{:.4f}".format(average_kappa / float(len(test_loader.dataset.images))) +
-          " Jaccard= " + "{:.4f}".format(average_jaccard / float(len(test_loader.dataset.images))) +
-          " Tau= " + "{:.4f}".format(average_tau / float(len(test_loader.dataset.images))) +
-          " Confusion Matrix= " + np.array_str(average_conf_m).replace("\n", "")
-          )
-
-    sys.stdout.flush()
-
-
-def test(test_loader, criterion, net, epoch):
+def test(test_loader, criterion, net, epoch, margin):
     # Setting network for evaluation mode.
     net.eval()
 
@@ -266,24 +139,19 @@ def test(test_loader, criterion, net, epoch):
             # Forwarding.
             outs = net(inps_c)
 
-            # pred = (-outs <= 0.999).int().detach().cpu().numpy()  # v1
-            if hasattr(criterion, 'pos_margin'):
-                pred = (-outs < criterion.pos_margin).int().detach().cpu().numpy().flatten()
-            else:
-                pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
+            pred = (-outs < margin).int().detach().cpu().numpy().flatten()
             labs = labs.flatten()
 
-            # filtering out pixels
-            coord = np.where(labs != 2)
-            labs = labs[coord]
-            pred = pred[coord]
+            if test_loader.dataset.dataset == 'Coffee_Full':
+                # filtering out pixels
+                coord = np.where(labs != 2)
+                labs = labs[coord]
+                pred = pred[coord]
 
             track_cm += confusion_matrix(labs, pred, labels=[0, 1])
 
     acc = (track_cm[0][0] + track_cm[1][1])/np.sum(track_cm)
     f1_s = f1_with_cm(track_cm)
-    kappa = kappa_with_cm(track_cm)
-    jaccard = jaccard_with_cm(track_cm)
 
     _sum = 0.0
     for k in range(len(track_cm)):
@@ -292,73 +160,16 @@ def test(test_loader, criterion, net, epoch):
 
     print("---- Validation/Test -- Epoch " + str(epoch) +
           " -- Time " + str(datetime.datetime.now().time()) +
+          " -- Margin= " + str(margin) +
           " Overall Accuracy= " + "{:.4f}".format(acc) +
           " Normalized Accuracy= " + "{:.4f}".format(nacc) +
           " F1 Score= " + "{:.4f}".format(f1_s) +
-          " Kappa= " + "{:.4f}".format(kappa) +
-          " Jaccard= " + "{:.4f}".format(jaccard) +
           " Confusion Matrix= " + np.array_str(track_cm).replace("\n", "")
           )
 
     sys.stdout.flush()
 
-    return acc, nacc, f1_s, kappa, track_cm
-
-
-def train_full_map(train_loader, criterion, net, epoch):
-    # Setting network for evaluation mode.
-    net.eval()
-
-    prob_im = []
-    occur_im = []
-    for i in range(len(train_loader.dataset.labels)):
-        prob_im.append(np.zeros([train_loader.dataset.labels[i].shape[0],
-                                 train_loader.dataset.labels[i].shape[1]], dtype=np.float32))
-        occur_im.append(np.zeros([train_loader.dataset.labels[i].shape[0],
-                                  train_loader.dataset.labels[i].shape[1]], dtype=int))
-
-    with torch.no_grad():
-        # Iterating over batches.
-        for i, data in enumerate(train_loader):
-            # Obtaining images, labels and paths for batch.
-            inps, labs, cur_maps, cur_xs, cur_ys = data
-
-            # Casting to cuda variables.
-            inps_c = Variable(inps).cuda()
-            # labs_c = Variable(labs).cuda()
-
-            # Forwarding.
-            outs = net(inps_c)
-            outs_p = -outs.permute(0, 2, 3, 1).cpu().detach().numpy()
-
-            for j in range(outs.shape[0]):
-                cur_map = cur_maps[j]
-                cur_x = cur_xs[j]
-                cur_y = cur_ys[j]
-
-                prob_im[cur_map][cur_x:cur_x + train_loader.dataset.crop_size,
-                                 cur_y:cur_y + train_loader.dataset.crop_size] += outs_p[j, :, :, 0]
-                occur_im[cur_map][cur_x:cur_x + train_loader.dataset.crop_size,
-                                  cur_y:cur_y + train_loader.dataset.crop_size] += 1
-
-    prob_im_argmax = []
-    incorrect_classified_map = []
-    for i in range(len(train_loader.dataset.labels)):
-        # normalise to remove non-predicted pixels
-        occur_im[i][np.where(occur_im[i] == 0)] = 1
-
-        # prob_im_argmax = ((prob_im / occur_im.astype(float)) <= 0.999).astype(int)  # v1
-        if hasattr(criterion, 'pos_margin'):
-            prob_im_argmax.append(((prob_im[i] / occur_im[i].astype(float)) < criterion.pos_margin).astype(int))
-        else:
-            prob_im_argmax.append(((prob_im[i] / occur_im[i].astype(float)) < criterion.margin).astype(int))
-        # print(prob_im_argmax[i].shape, np.bincount(prob_im_argmax[i].flatten()),
-        #       train_loader.dataset.labels[i].shape, np.bincount(train_loader.dataset.labels[i].flatten()))
-
-        incorrect_classified_map.append((prob_im_argmax[i] != train_loader.dataset.labels[i]).astype(int))
-
-    # print(correct_classified_map[0].shape, correct_classified_map[1].shape)
-    return incorrect_classified_map
+    return acc, nacc
 
 
 def train(train_loader, net, criterion, optimizer, epoch, output):
@@ -372,10 +183,6 @@ def train(train_loader, net, criterion, optimizer, epoch, output):
     for i, data in enumerate(train_loader):
         # Obtaining buzz sounds and labels
         inps, labels = data[0], data[1]
-
-        # if there is only one class
-        if len(np.bincount(labels.flatten())) == 1:
-            continue
 
         # Casting to cuda variables.
         inps = Variable(inps).cuda()
@@ -405,24 +212,14 @@ def train(train_loader, net, criterion, optimizer, epoch, output):
                 pred = (-outs < criterion.pos_margin).int().detach().cpu().numpy().flatten()
             else:
                 pred = (-outs < criterion.margin).int().detach().cpu().numpy().flatten()
-            labels = labels.detach().cpu().numpy().flatten()
+            labels = labels.flatten()
 
-            # filtering out pixels
-            coord = np.where(labels != 2)
-            labels = labels[coord]
-            pred = pred[coord]
+            if train_loader.dataset.dataset == 'Coffee_Full':
+                # filtering out pixels
+                coord = np.where(labels != 2)
+                labels = labels[coord]
+                pred = pred[coord]
 
-            # checking distances
-            # n_outs = -outs.detach().cpu().numpy().flatten()[coord]
-            # false_pos = n_outs[np.logical_and(labels == 0, pred == 1)]
-            # false_neg = n_outs[np.logical_and(labels == 1, pred == 0)]
-            # print(false_pos.shape, false_pos.shape[0])
-            # if false_pos.shape[0] != 0:
-            #     print('false_pos', np.min(false_pos), np.mean(false_pos), np.max(false_pos))
-            # if false_neg.shape[0] != 0:
-            #     print('false_neg', np.min(false_neg), np.mean(false_neg), np.max(false_neg))
-
-            # metrics
             acc = accuracy_score(labels, pred)
             conf_m = confusion_matrix(labels, pred, labels=[0, 1])
             f1_s = f1_score(labels, pred, average='weighted')
@@ -461,7 +258,7 @@ if __name__ == '__main__':
 
     # dataset options
     parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
-                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full', 'Coffee_Crop', 'Road', 'Tree'])
+                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
     parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
     parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
@@ -470,8 +267,7 @@ if __name__ == '__main__':
 
     # model options
     parser.add_argument('--model', type=str, required=True, default=None,
-                        help='Model to be used.', choices=['WideResNet', 'WideResNet_4', 'UNet',
-                                                           'DenseNet121', 'EfficientNetB0'])
+                        help='Model to be used.', choices=['WideResNet'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
                         help='Path to a trained model that can be load and used for inference.')
     parser.add_argument('--weights', type=float, nargs='+', default=[1.0, 1.0], help='Weight Loss.')
@@ -486,10 +282,7 @@ if __name__ == '__main__':
     parser.add_argument('--pos_margin', type=float, default=None,
                         help='Margin for the positive class of the contrastive learning')
     parser.add_argument('--miner', type=str2bool, default=False,
-                        help='Miner hard samples and equalize number of samples 1:1')
-    parser.add_argument('--weight_sampler', type=str2bool, default=False, help='Use weight sampler for loader?')
-    parser.add_argument('--dynamic_sampler', type=str2bool, default=False, help='Dynamic sampler based on uncertainty')
-    parser.add_argument('--crop', type=str2bool, default=False, help='River crop dataset?')
+                        help='Miner hard samples and equalize number fo samples 1:1')
     args = parser.parse_args()
     print(sys.argv[0], args)
 
@@ -497,28 +290,11 @@ if __name__ == '__main__':
     if args.operation == 'Train':
         if args.dataset == 'River':
             print('---- training data ----')
-            train_dataset = DataLoader('Full_train', args.dataset, args.dataset_path, args.training_images,
-                                       args.crop_size, args.stride_crop, output_path=args.output_path, crop=args.crop)
+            train_dataset = DataLoader('Train', args.dataset, args.dataset_path, args.training_images, args.crop_size,
+                                       args.stride_crop, output_path=args.output_path)
             print('---- testing data ----')
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
-                                      args.crop_size, args.crop_size,  # args.stride_crop,
-                                      mean=train_dataset.mean, std=train_dataset.std, crop=args.crop)
-        elif args.dataset == 'Road':
-            print('---- training data ----')
-            train_dataset = DataLoaderRoad('Train', args.dataset, args.dataset_path, args.training_images,
-                                           args.crop_size, args.stride_crop, output_path=args.output_path)
-            print('---- testing data ----')
-            test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
-                                          args.crop_size, args.crop_size,
-                                          mean=train_dataset.mean, std=train_dataset.std)
-        elif args.dataset == 'Coffee_Crop':
-            print('---- training data ----')
-            train_dataset = DataLoaderCoffeeCrop('Train', args.dataset, args.dataset_path, args.training_images,
-                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
-            print('---- testing data ----')
-            test_dataset = DataLoaderCoffeeCrop('Test', args.dataset, args.dataset_path, args.testing_images,
-                                                args.crop_size, args.crop_size,
-                                                mean=train_dataset.mean, std=train_dataset.std)
+                                      args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Orange':
             print('---- training data ----')
             train_dataset = DataLoaderOrange('Train', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
@@ -536,52 +312,24 @@ if __name__ == '__main__':
                                             mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Coffee_Full':
             print('---- training data ----')
-            train_dataset = DataLoaderCoffeeFull('Full_Train', args.dataset, args.dataset_path, args.training_images,
+            train_dataset = DataLoaderCoffeeFull('Train', args.dataset, args.dataset_path, args.training_images,
                                                  args.crop_size, args.stride_crop, output_path=args.output_path)
             print('---- testing data ----')
-            test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
+            test_dataset = DataLoaderCoffeeFull('Test', args.dataset, args.dataset_path, args.testing_images,
                                                 args.crop_size, args.stride_crop,
                                                 mean=train_dataset.mean, std=train_dataset.std)
-        elif args.dataset == 'Tree':
-            print('---- training data ----')
-            train_dataset = DataLoaderTree('Train', args.dataset, args.dataset_path, args.training_images,
-                                           args.crop_size, args.stride_crop, output_path=args.output_path)
-            print('---- testing data ----')
-            test_dataset = DataLoaderTree('Test', args.dataset, args.dataset_path, args.testing_images,
-                                          args.crop_size, args.crop_size,
-                                          mean=train_dataset.mean, std=train_dataset.std)
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
 
-        if args.weight_sampler is False:
-            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                           shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
-        else:
-            train_dataloader = sample_weight_train_loader(train_dataset, train_dataset.gen_classes, args.batch_size)
-
+        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                       shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
 
         # network
         if args.model == 'WideResNet':
-            model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True,
-                                                     skip_layers='2_4', classif=False),
-                                     squared=False, n_prototypes=1, embedding_dim=2560)  # original
-        elif args.model == 'WideResNet_4':
-            model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True,
-                                                     skip_layers='1_2_3_4', classif=False),
-                                     squared=True, n_prototypes=1, embedding_dim=3840)
-        elif args.model == 'DenseNet121':
-            model = LearntPrototypes(FCNDenseNet121(train_dataset.num_classes, pretrained=True,
-                                                    skip_layers='1_2_3_4', classif=False),
-                                     squared=True, n_prototypes=1, embedding_dim=1920)
-        elif args.model == 'UNet':
-            model = LearntPrototypes(UNet(train_dataset.num_classes, input_channels=3,
-                                          skip_layers='1_2_3_4', classif=False),
-                                     squared=True, n_prototypes=1, embedding_dim=512)
-        elif args.model == 'EfficientNetB0':
-            model = LearntPrototypes(FCNEfficientNetB0(train_dataset.num_classes, pretrained=True, classif=False),
-                                     squared=True, n_prototypes=1, embedding_dim=2096)
+            model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True, classif=False),
+                                     squared=False, n_prototypes=1, embedding_dim=2560)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 
@@ -614,18 +362,11 @@ if __name__ == '__main__':
         print('---- training ----')
         for epoch in range(curr_epoch, args.epoch_num + 1):
             train(train_dataloader, model, criterion, optimizer, epoch, args.output_path)
-            # validation
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
-                # acc, nacc, f1_s, kappa, track_cm
-                acc, nacc, f1_s, kappa, _ = test(test_dataloader, criterion, model, epoch)
-                save_best_models(model, optimizer, args.output_path, best_records, epoch, kappa)
-            # calculate patches to sample
-            if args.dynamic_sampler and epoch % NEW_SAMPLE_INTERVAL == 0:
-                diff_maps = train_full_map(train_dataloader, criterion, model, epoch)
-                gen_classes = update_train_loader(diff_maps, train_dataset.distrib,
-                                                  train_dataset.crop_size, percentage=0.10)
-                train_dataloader = sample_weight_train_loader(train_dataset, gen_classes, args.batch_size)
+                for m in [0.5, 1.0, 1.5, 2.0]:
+                    acc, nacc = test(test_dataloader, criterion, model, epoch, margin=m)
+                    save_best_models(model, optimizer, args.output_path, best_records, epoch, nacc)
             scheduler.step()
     elif args.operation == 'Test':
         print('---- testing ----')
@@ -660,40 +401,29 @@ if __name__ == '__main__':
     elif args.operation == 'Test_Full':
         print('---- testing ----')
 
-        if args.model_path is None:
-            best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
-            index = 0
-            for i in range(len(best_records)):
-                if best_records[index]['kappa'] < best_records[i]['kappa']:
-                    index = i
-            epoch = int(best_records[index]['epoch'])
-            cur_model = 'model_' + str(epoch) + '.pth'
-        else:
-            epoch = int(args.model_path[:-4].split('_')[-1])
-            cur_model = args.model_path
+        best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
+        index = 0
+        for i in range(len(best_records)):
+            if best_records[index]['nacc'] < best_records[i]['nacc']:
+                index = i
 
         print('---- data ----')
         if args.dataset == 'River':
+            print('---- testing data ----')
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
                                       args.crop_size, args.stride_crop, output_path=args.output_path)
-        elif args.dataset == 'Tree':
-            test_dataset = DataLoaderTree('Test', args.dataset, args.dataset_path, args.testing_images,
-                                          args.crop_size, args.stride_crop, output_path=args.output_path)
         elif args.dataset == 'Orange':
+            print('---- testing data ----')
             test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
                                             output_path=args.output_path)
         elif args.dataset == 'Coffee':
+            print('---- testing data ----')
             test_dataset = DataLoaderCoffee('Test', args.dataset, args.dataset_path, args.testing_images,
                                             args.crop_size, args.stride_crop, output_path=args.output_path)
         elif args.dataset == 'Coffee_Full':
+            print('---- testing data ----')
             test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
-        elif args.dataset == 'Coffee_Crop':
-            test_dataset = DataLoaderCoffeeCrop('Test', args.dataset, args.dataset_path, args.testing_images,
-                                                args.crop_size, args.stride_crop, output_path=args.output_path)
-        elif args.dataset == 'Road':
-            test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
-                                          args.crop_size, args.stride_crop, output_path=args.output_path)
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
 
@@ -707,19 +437,12 @@ if __name__ == '__main__':
         if args.model == 'WideResNet':
             model = LearntPrototypes(FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=False),
                                      squared=False, n_prototypes=1, embedding_dim=2560)
-        elif args.model == 'WideResNet_4':
-            model = LearntPrototypes(FCNWideResNet50(test_dataset.num_classes, pretrained=True,
-                                                     skip_layers='1_2_3_4', classif=False),
-                                     squared=True, n_prototypes=1, embedding_dim=3840)
-        elif args.model == 'DenseNet121':
-            model = LearntPrototypes(FCNDenseNet121(test_dataset.num_classes, pretrained=True,
-                                                    skip_layers='1_2_3_4', classif=False),
-                                     squared=True, n_prototypes=1, embedding_dim=1920)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 
+        epoch = int(best_records[index]['epoch'])
         print("loading model_" + str(epoch) + '.pth')
-        model.load_state_dict(torch.load(os.path.join(args.output_path, cur_model)))
+        model.load_state_dict(torch.load(os.path.join(args.output_path, 'model_' + str(epoch) + '.pth')))
         model.cuda()
 
         test_full_map(test_dataloader, criterion, model, epoch, args.output_path)

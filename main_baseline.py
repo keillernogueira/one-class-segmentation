@@ -407,7 +407,7 @@ if __name__ == '__main__':
                                        args.crop_size, args.stride_crop, output_path=args.output_path, crop=args.crop)
             print('---- testing data ----')
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
-                                      args.crop_size, args.crop_size,  # args.stride_crop,
+                                      args.crop_size, args.stride_crop,  # args.crop_size,
                                       mean=train_dataset.mean, std=train_dataset.std, crop=args.crop)
         elif args.dataset == 'Road':
             print('---- training data ----')
@@ -423,7 +423,7 @@ if __name__ == '__main__':
                                            args.crop_size, args.stride_crop, output_path=args.output_path)
             print('---- testing data ----')
             test_dataset = DataLoaderTree('Test', args.dataset, args.dataset_path, args.testing_images,
-                                          args.crop_size, args.crop_size,
+                                          args.crop_size, args.stride_crop,  # args.crop_size,
                                           mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Orange':
             print('---- training data ----')
@@ -587,7 +587,7 @@ if __name__ == '__main__':
                                       args.crop_size, args.stride_crop, output_path=args.output_path)
         elif args.dataset == 'Road':
             test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
-                                          args.crop_size, args.crop_size, output_path=args.output_path)
+                                          args.crop_size, args.stride_crop, output_path=args.output_path)
         elif args.dataset == 'Orange':
             test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
                                             output_path=args.output_path)
@@ -597,6 +597,9 @@ if __name__ == '__main__':
         elif args.dataset == 'Coffee_Crop':
             test_dataset = DataLoaderCoffeeCrop('Test', args.dataset, args.dataset_path, args.testing_images,
                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
+        elif args.dataset == 'Tree':
+            test_dataset = DataLoaderTree('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.stride_crop, output_path=args.output_path)
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
 
