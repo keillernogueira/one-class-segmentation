@@ -1,7 +1,8 @@
 import sys
 import datetime
 import imageio
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score, jaccard_score
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score, \
+    jaccard_score, precision_score, recall_score
 import scipy.stats as stats
 
 import torch
@@ -24,6 +25,7 @@ from networks.FCNWideResNet50 import FCNWideResNet50
 from networks.efficientnet import FCNEfficientNetB0
 from networks.FCNDenseNet121 import FCNDenseNet121
 from focal_loss import BinaryFocalLoss, FocalLossV2
+from unified_focal_loss import UnifiedFocalLoss
 
 
 def test_full_map_one_map(test_loader, net, epoch, output_path):
@@ -121,6 +123,12 @@ def test_full_map(test_loader, net, epoch, output_path):
     average_kappa = 0.0
     average_jaccard = 0.0
     average_tau = 0.0
+    average_prec_micro = 0.0
+    average_prec_macro = 0.0
+    average_prec_binary = 0.0
+    average_rec_micro = 0.0
+    average_rec_macro = 0.0
+    average_rec_binary = 0.0
 
     prob_im = []
     occur_im = []
@@ -183,6 +191,12 @@ def test_full_map(test_loader, net, epoch, output_path):
         kappa = cohen_kappa_score(labs, prds)
         jaccard = jaccard_score(labs, prds)
         tau, p = stats.kendalltau(labs, prds)
+        prec_micro = precision_score(labs, prds, average='micro')
+        prec_macro = precision_score(labs, prds, average='macro')
+        prec_binary = precision_score(labs, prds, average='binary')
+        rec_micro = recall_score(labs, prds, average='micro')
+        rec_macro = recall_score(labs, prds, average='macro')
+        rec_binary = recall_score(labs, prds, average='binary')
 
         _sum = 0.0
         for k in range(len(conf_m)):
@@ -197,11 +211,23 @@ def test_full_map(test_loader, net, epoch, output_path):
         average_kappa += kappa
         average_jaccard += jaccard
         average_tau += tau
+        average_prec_micro += prec_micro
+        average_prec_macro += prec_macro
+        average_prec_binary += prec_binary
+        average_rec_micro += rec_micro
+        average_rec_macro += rec_macro
+        average_rec_binary += rec_binary
 
         print("---- Validation/Test -- Image: " + img + " -- Epoch " + str(epoch) +
               " -- Time " + str(datetime.datetime.now().time()) +
               " Overall Accuracy= " + "{:.4f}".format(acc) +
               " Normalized Accuracy= " + "{:.4f}".format(_sum / float(outs.shape[1])) +
+              " Precision micro= " + "{:.4f}".format(prec_micro) +
+              " Precision macro= " + "{:.4f}".format(prec_macro) +
+              " Precision binary= " + "{:.4f}".format(prec_binary) +
+              " Recall micro= " + "{:.4f}".format(rec_micro) +
+              " Recall macro= " + "{:.4f}".format(rec_macro) +
+              " Recall binary= " + "{:.4f}".format(rec_binary) +
               " F1 score weighted= " + "{:.4f}".format(f1_s_w) +
               " F1 score micro= " + "{:.4f}".format(f1_s_micro) +
               " F1 score macro= " + "{:.4f}".format(f1_s_macro) +
@@ -215,6 +241,12 @@ def test_full_map(test_loader, net, epoch, output_path):
           " -- Time " + str(datetime.datetime.now().time()) +
           " Overall Accuracy= " + "{:.4f}".format(average_acc / float(len(test_loader.dataset.images))) +
           " Normalized Accuracy= " + "{:.4f}".format(average_n_acc / float(len(test_loader.dataset.images))) +
+          " Precision micro= " + "{:.4f}".format(average_prec_micro / float(len(test_loader.dataset.images))) +
+          " Precision macro= " + "{:.4f}".format(average_prec_macro / float(len(test_loader.dataset.images))) +
+          " Precision binary= " + "{:.4f}".format(average_prec_binary / float(len(test_loader.dataset.images))) +
+          " Recall micro= " + "{:.4f}".format(average_rec_micro / float(len(test_loader.dataset.images))) +
+          " Recall macro= " + "{:.4f}".format(average_rec_macro / float(len(test_loader.dataset.images))) +
+          " Recall binary= " + "{:.4f}".format(average_rec_binary / float(len(test_loader.dataset.images))) +
           " F1 score weighted= " + "{:.4f}".format(average_f1_s_w / float(len(test_loader.dataset.images))) +
           " F1 score micro= " + "{:.4f}".format(average_f1_s_micro / float(len(test_loader.dataset.images))) +
           " F1 score macro= " + "{:.4f}".format(average_f1_s_macro / float(len(test_loader.dataset.images))) +
@@ -384,8 +416,8 @@ if __name__ == '__main__':
     # model options
     parser.add_argument('--model', type=str, required=True, default=None,
                         help='Model to be used.', choices=['WideResNet', 'EfficientNetB0', 'DenseNet121'])
-    parser.add_argument('--loss', type=str, required=True, default=None,
-                        help='Loss function to be used.', choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal'])
+    parser.add_argument('--loss', type=str, required=True, default=None, help='Loss function to be used.',
+                        choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal', 'UnifiedFocal'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
                         help='Path to a trained model that can be load and used for inference.')
     parser.add_argument('--weights', type=float, nargs='+', default=[1.0, 1.0], help='Weight Loss.')
@@ -492,6 +524,12 @@ if __name__ == '__main__':
             criterion = BinaryFocalLoss(alpha=args.weights[1], gamma=2).cuda()
         elif args.loss == 'Focal':
             criterion = FocalLossV2(weight=torch.FloatTensor(args.weights).cuda(), gamma=2).cuda()
+        elif args.loss == 'UnifiedFocal':
+            # original
+            # criterion = UnifiedFocalLoss(weight=torch.FloatTensor(args.weights).cuda(), delta=0.5, gamma=2).cuda()
+            # paper
+            criterion = UnifiedFocalLoss(internal_weight=0.5, weight=torch.FloatTensor(args.weights).cuda(),
+                                         delta=0.6, gamma=2).cuda()
         else:
             raise NotImplementedError("Loss " + args.loss + " not implemented")
         # tl_criterion = nn.TripletMarginLoss(margin=1.0, p=2)

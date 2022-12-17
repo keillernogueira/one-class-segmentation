@@ -3,7 +3,8 @@ import os
 import sys
 import datetime
 import imageio
-from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score, jaccard_score
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score, \
+    jaccard_score, precision_score, recall_score
 import scipy.stats as stats
 
 import torch
@@ -136,6 +137,12 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
     average_kappa = 0.0
     average_jaccard = 0.0
     average_tau = 0.0
+    average_prec_micro = 0.0
+    average_prec_macro = 0.0
+    average_prec_binary = 0.0
+    average_rec_micro = 0.0
+    average_rec_macro = 0.0
+    average_rec_binary = 0.0
 
     prob_im = []
     occur_im = []
@@ -204,6 +211,12 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
         kappa = cohen_kappa_score(lbl, pred)
         jaccard = jaccard_score(lbl, pred)
         tau, p = stats.kendalltau(lbl, pred)
+        prec_micro = precision_score(lbl, pred, average='micro')
+        prec_macro = precision_score(lbl, pred, average='macro')
+        prec_binary = precision_score(lbl, pred, average='binary')
+        rec_micro = recall_score(lbl, pred, average='micro')
+        rec_macro = recall_score(lbl, pred, average='macro')
+        rec_binary = recall_score(lbl, pred, average='binary')
 
         _sum = 0.0
         for k in range(len(conf_m)):
@@ -218,11 +231,23 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
         average_kappa += kappa
         average_jaccard += jaccard
         average_tau += tau
+        average_prec_micro += prec_micro
+        average_prec_macro += prec_macro
+        average_prec_binary += prec_binary
+        average_rec_micro += rec_micro
+        average_rec_macro += rec_macro
+        average_rec_binary += rec_binary
 
         print("---- Validation/Test -- Image: " + img + " -- Epoch " + str(epoch) +
               " -- Time " + str(datetime.datetime.now().time()) +
               " Overall Accuracy= " + "{:.4f}".format(acc) +
               " Normalized Accuracy= " + "{:.4f}".format(_sum / float(2.0)) +
+              " Precision micro= " + "{:.4f}".format(prec_micro) +
+              " Precision macro= " + "{:.4f}".format(prec_macro) +
+              " Precision binary= " + "{:.4f}".format(prec_binary) +
+              " Recall micro= " + "{:.4f}".format(rec_micro) +
+              " Recall macro= " + "{:.4f}".format(rec_macro) +
+              " Recall binary= " + "{:.4f}".format(rec_binary) +
               " F1 score weighted= " + "{:.4f}".format(f1_s_w) +
               " F1 score micro= " + "{:.4f}".format(f1_s_micro) +
               " F1 score macro= " + "{:.4f}".format(f1_s_macro) +
@@ -236,6 +261,12 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
           " -- Time " + str(datetime.datetime.now().time()) +
           " Overall Accuracy= " + "{:.4f}".format(average_acc / float(len(test_loader.dataset.images))) +
           " Normalized Accuracy= " + "{:.4f}".format(average_n_acc / float(len(test_loader.dataset.images))) +
+          " Precision micro= " + "{:.4f}".format(average_prec_micro / float(len(test_loader.dataset.images))) +
+          " Precision macro= " + "{:.4f}".format(average_prec_macro / float(len(test_loader.dataset.images))) +
+          " Precision binary= " + "{:.4f}".format(average_prec_binary / float(len(test_loader.dataset.images))) +
+          " Recall micro= " + "{:.4f}".format(average_rec_micro / float(len(test_loader.dataset.images))) +
+          " Recall macro= " + "{:.4f}".format(average_rec_macro / float(len(test_loader.dataset.images))) +
+          " Recall binary= " + "{:.4f}".format(average_rec_binary / float(len(test_loader.dataset.images))) +
           " F1 score weighted= " + "{:.4f}".format(average_f1_s_w / float(len(test_loader.dataset.images))) +
           " F1 score micro= " + "{:.4f}".format(average_f1_s_micro / float(len(test_loader.dataset.images))) +
           " F1 score macro= " + "{:.4f}".format(average_f1_s_macro / float(len(test_loader.dataset.images))) +
