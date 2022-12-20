@@ -26,6 +26,7 @@ from networks.efficientnet import FCNEfficientNetB0
 from networks.FCNDenseNet121 import FCNDenseNet121
 from focal_loss import BinaryFocalLoss, FocalLossV2
 from unified_focal_loss import UnifiedFocalLoss
+from dual_focal_loss import DualFocalLoss
 
 
 def test_full_map_one_map(test_loader, net, epoch, output_path):
@@ -417,7 +418,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, required=True, default=None,
                         help='Model to be used.', choices=['WideResNet', 'EfficientNetB0', 'DenseNet121'])
     parser.add_argument('--loss', type=str, required=True, default=None, help='Loss function to be used.',
-                        choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal', 'UnifiedFocal'])
+                        choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal', 'UnifiedFocal', 'DualFocal'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
                         help='Path to a trained model that can be load and used for inference.')
     parser.add_argument('--weights', type=float, nargs='+', default=[1.0, 1.0], help='Weight Loss.')
@@ -524,6 +525,8 @@ if __name__ == '__main__':
             criterion = BinaryFocalLoss(alpha=args.weights[1], gamma=2).cuda()
         elif args.loss == 'Focal':
             criterion = FocalLossV2(weight=torch.FloatTensor(args.weights).cuda(), gamma=2).cuda()
+        elif args.loss == 'DualFocal':
+            criterion = DualFocalLoss(alpha=1, beta=1, gamma=1, rho=1).cuda()
         elif args.loss == 'UnifiedFocal':
             # original
             # criterion = UnifiedFocalLoss(weight=torch.FloatTensor(args.weights).cuda(), delta=0.5, gamma=2).cuda()
