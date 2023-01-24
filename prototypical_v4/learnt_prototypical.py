@@ -23,6 +23,7 @@ class LearntPrototypes(nn.Module):
         self.n_prototypes = n_prototypes
         self.squared = squared
         self.dist = dist
+        print('----- dist', dist)
 
     def forward(self, data):
         _, embeddings = self.model(data)

@@ -3,6 +3,7 @@ import os
 import sys
 import datetime
 import imageio
+import math
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score, \
     jaccard_score, precision_score, recall_score
 import scipy.stats as stats
@@ -194,6 +195,9 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
 
         if test_loader.dataset.dataset == 'Coffee_Full' or test_loader.dataset.dataset == 'Orange':
             labs = test_loader.dataset.labels[i]
+            if test_loader.dataset.dataset == 'Orange':  # removing training part
+                labs = labs[5051:, :]
+                prob_im_argmax = prob_im_argmax[5051:, :]
             coord = np.where(labs != 2)
             lbl = labs[coord]
             pred = prob_im_argmax[coord]
@@ -521,6 +525,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight_sampler', type=str2bool, default=False, help='Use weight sampler for loader?')
     parser.add_argument('--dynamic_sampler', type=str2bool, default=False, help='Dynamic sampler based on uncertainty')
     parser.add_argument('--crop', type=str2bool, default=False, help='River crop dataset?')
+    parser.add_argument('--distance', type=str, default='euclidean', help='Distance?', choices=['euclidean', 'cosine'])
     args = parser.parse_args()
     print(sys.argv[0], args)
 
@@ -555,7 +560,8 @@ if __name__ == '__main__':
             train_dataset = DataLoaderOrange('Train', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
                                              output_path=args.output_path)
             print('---- testing data ----')
-            test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
+            test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path,
+                                            args.crop_size, args.crop_size,  # args.stride_crop,
                                             mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Coffee':
             print('---- training data ----')
@@ -601,15 +607,15 @@ if __name__ == '__main__':
         elif args.model == 'WideResNet_4':
             model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True,
                                                      skip_layers='1_2_3_4', classif=False),
-                                     squared=True, n_prototypes=1, embedding_dim=3840)
+                                     squared=True, dist=args.distance, n_prototypes=1, embedding_dim=3840)
         elif args.model == 'DenseNet121':
             model = LearntPrototypes(FCNDenseNet121(train_dataset.num_classes, pretrained=True,
                                                     skip_layers='1_2_3_4', classif=False),
-                                     squared=True, n_prototypes=1, embedding_dim=1920)
+                                     squared=True, dist=args.distance, n_prototypes=1, embedding_dim=1920)
         elif args.model == 'UNet':
             model = LearntPrototypes(UNet(train_dataset.num_classes, input_channels=3,
                                           skip_layers='1_2_3_4', classif=False),
-                                     squared=True, n_prototypes=1, embedding_dim=512)
+                                     squared=True, dist=args.distance, n_prototypes=1, embedding_dim=512)
         elif args.model == 'EfficientNetB0':
             model = LearntPrototypes(FCNEfficientNetB0(train_dataset.num_classes, pretrained=True, classif=False),
                                      squared=True, n_prototypes=1, embedding_dim=2096)
@@ -692,6 +698,7 @@ if __name__ == '__main__':
         print('---- testing ----')
 
         if args.model_path is None:
+            print('loading from best_records')
             best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
             index = 0
             for i in range(len(best_records)):
@@ -700,6 +707,7 @@ if __name__ == '__main__':
             epoch = int(best_records[index]['epoch'])
             cur_model = 'model_' + str(epoch) + '.pth'
         else:
+            print('loading from args.model_path')
             epoch = int(args.model_path[:-4].split('_')[-1])
             cur_model = args.model_path
 
@@ -737,15 +745,15 @@ if __name__ == '__main__':
         # network
         if args.model == 'WideResNet':
             model = LearntPrototypes(FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=False),
-                                     squared=False, n_prototypes=1, embedding_dim=2560)
+                                     squared=False, dist=args.distance, n_prototypes=1, embedding_dim=2560)
         elif args.model == 'WideResNet_4':
             model = LearntPrototypes(FCNWideResNet50(test_dataset.num_classes, pretrained=True,
                                                      skip_layers='1_2_3_4', classif=False),
-                                     squared=True, n_prototypes=1, embedding_dim=3840)
+                                     squared=True, dist=args.distance, n_prototypes=1, embedding_dim=3840)
         elif args.model == 'DenseNet121':
             model = LearntPrototypes(FCNDenseNet121(test_dataset.num_classes, pretrained=True,
                                                     skip_layers='1_2_3_4', classif=False),
-                                     squared=True, n_prototypes=1, embedding_dim=1920)
+                                     squared=True, dist=args.distance, n_prototypes=1, embedding_dim=1920)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 

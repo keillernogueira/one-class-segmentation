@@ -333,7 +333,7 @@ def train(train_loader, net, criterion, optimizer, epoch, loss_type):
         # Obtaining buzz sounds and labels
         inps, labels = data[0], data[1]
 
-        # if there is only one class
+        # if, for some reason, there is only one class
         if len(np.bincount(labels.flatten())) == 1:
             continue
 
@@ -416,7 +416,8 @@ if __name__ == '__main__':
 
     # model options
     parser.add_argument('--model', type=str, required=True, default=None,
-                        help='Model to be used.', choices=['WideResNet', 'EfficientNetB0', 'DenseNet121'])
+                        help='Model to be used.',
+                        choices=['WideResNet', 'WideResNet_4', 'EfficientNetB0', 'DenseNet121'])
     parser.add_argument('--loss', type=str, required=True, default=None, help='Loss function to be used.',
                         choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal', 'UnifiedFocal', 'DualFocal'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
@@ -505,6 +506,9 @@ if __name__ == '__main__':
         if args.model == 'WideResNet':
             model = FCNWideResNet50(1 if 'Binary' in args.loss else train_dataset.num_classes,
                                     pretrained=True, skip_layers='2_4', classif=True)
+        elif args.model == 'WideResNet_4':
+            model = FCNWideResNet50(1 if 'Binary' in args.loss else train_dataset.num_classes,
+                                    pretrained=True, skip_layers='1_2_3_4', classif=True)
         elif args.model == 'DenseNet121':
             model = FCNDenseNet121(train_dataset.num_classes, pretrained=True, skip_layers='1_2_3_4', classif=True)
         elif args.model == 'EfficientNetB0':
@@ -650,6 +654,8 @@ if __name__ == '__main__':
         # network
         if args.model == 'WideResNet':
             model = FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=True)
+        elif args.model == 'WideResNet_4':
+            model = FCNWideResNet50(test_dataset.num_classes, pretrained=True, skip_layers='1_2_3_4', classif=True)
         elif args.model == 'DenseNet121':
             model = FCNDenseNet121(test_dataset.num_classes, pretrained=True, skip_layers='1_2_3_4', classif=True)
         elif args.model == 'EfficientNetB0':

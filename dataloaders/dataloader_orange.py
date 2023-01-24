@@ -12,7 +12,6 @@ from dataloaders.data_utils import create_distrib, split_train_test, \
 
 
 class DataLoaderOrange(data.Dataset):
-
     def __init__(self, mode, dataset, dataset_path, crop_size, stride_size,
                  statistics="own", mean=None, std=None, output_path=None):
         super().__init__()
@@ -23,6 +22,7 @@ class DataLoaderOrange(data.Dataset):
         self.dataset_path = dataset_path
         self.crop_size = crop_size
         self.stride_size = stride_size
+        self.images = ['test']
 
         self.data, self.labels = self.load_images()
         if len(self.data) == 0:
@@ -63,7 +63,6 @@ class DataLoaderOrange(data.Dataset):
 
         images.append(image)
         masks.append(imageio.imread(os.path.join(self.dataset_path, 'mask', 'final_mask.png')))
-
         return images, masks
 
     def make_dataset(self):
