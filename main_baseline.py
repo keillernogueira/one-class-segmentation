@@ -179,6 +179,9 @@ def test_full_map(test_loader, net, epoch, output_path):
 
         # filtering out pixels
         labs = test_loader.dataset.labels[i]
+        if test_loader.dataset.dataset == 'Orange':  # removing training part
+            labs = labs[5051:, :]
+            prob_im_argmax = prob_im_argmax[5051:, :]
         coord = np.where(labs != 2)
         labs = labs[coord]
         prds = prob_im_argmax[coord]
