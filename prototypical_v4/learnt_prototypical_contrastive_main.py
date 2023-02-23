@@ -194,6 +194,9 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
 
         if test_loader.dataset.dataset == 'Coffee_Full' or test_loader.dataset.dataset == 'Orange':
             labs = test_loader.dataset.labels[i]
+            if test_loader.dataset.dataset == 'Orange':  # removing training part
+                labs = labs[5051:, :]
+                prob_im_argmax = prob_im_argmax[5051:, :]
             coord = np.where(labs != 2)
             lbl = labs[coord]
             pred = prob_im_argmax[coord]
