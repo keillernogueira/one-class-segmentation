@@ -27,6 +27,7 @@ from networks.FCNDenseNet121 import FCNDenseNet121
 from focal_loss import BinaryFocalLoss, FocalLossV2
 from unified_focal_loss import UnifiedFocalLoss
 from dual_focal_loss import DualFocalLoss
+from logcosh_tversky_loss import SegmentationLosses
 
 
 def test_full_map_one_map(test_loader, net, epoch, output_path):
@@ -422,7 +423,7 @@ if __name__ == '__main__':
                         help='Model to be used.',
                         choices=['WideResNet', 'WideResNet_4', 'EfficientNetB0', 'DenseNet121'])
     parser.add_argument('--loss', type=str, required=True, default=None, help='Loss function to be used.',
-                        choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal', 'UnifiedFocal', 'DualFocal'])
+                        choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal', 'UnifiedFocal', 'DualFocal', 'DUPnet'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
                         help='Path to a trained model that can be load and used for inference.')
     parser.add_argument('--weights', type=float, nargs='+', default=[1.0, 1.0], help='Weight Loss.')
@@ -532,6 +533,9 @@ if __name__ == '__main__':
             criterion = BinaryFocalLoss(alpha=args.weights[1], gamma=2).cuda()
         elif args.loss == 'Focal':
             criterion = FocalLossV2(weight=torch.FloatTensor(args.weights).cuda(), gamma=2).cuda()
+        elif args.loss == 'DUPnet':
+            criterion = SegmentationLosses(weight=torch.FloatTensor(args.weights).cuda(),
+                                           cuda=True).build_loss(mode='our')
         elif args.loss == 'DualFocal':
             criterion = DualFocalLoss(alpha=1, beta=1, gamma=1, rho=1).cuda()
         elif args.loss == 'UnifiedFocal':
