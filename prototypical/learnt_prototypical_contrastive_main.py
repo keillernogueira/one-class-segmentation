@@ -4,6 +4,8 @@ import sys
 import datetime
 import imageio
 import math
+
+import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, cohen_kappa_score, \
     jaccard_score, precision_score, recall_score
 import scipy.stats as stats
@@ -21,6 +23,8 @@ from dataloaders.dataloader_coffee import DataLoaderCoffee
 from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
 from dataloaders.dataloader_coffee_crop import DataLoaderCoffeeCrop
 from dataloaders.dataloader_tree import DataLoaderTree
+from dataloaders.dataloader_5billion import DataLoader5Billion
+from dataloaders.isprs_dataloader import ISPRSDataLoader
 
 from config import *
 from utils import *
@@ -157,7 +161,7 @@ def test_full_map(test_loader, criterion, net, epoch, output_path):
         # Iterating over batches.
         for i, data in enumerate(test_loader):
             # Obtaining images, labels and paths for batch.
-            inps, labs, cur_maps, cur_xs, cur_ys = data
+            inps, labs, cur_maps, cur_xs, cur_ys = data[0], data[1], data[2], data[3], data[4]
 
             # Casting to cuda variables.
             inps_c = Variable(inps).cuda()
@@ -496,7 +500,8 @@ if __name__ == '__main__':
 
     # dataset options
     parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
-                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full', 'Coffee_Crop', 'Road', 'Tree'])
+                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full', '5Billion',
+                                 'Coffee_Crop', 'Road', 'Tree', 'Vaihingen'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
     parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
     parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
@@ -539,6 +544,22 @@ if __name__ == '__main__':
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
                                       args.crop_size, args.crop_size,  # args.stride_crop,
                                       mean=train_dataset.mean, std=train_dataset.std, crop=args.crop)
+        elif args.dataset == 'Vaihingen':
+            print('---- training data ----')
+            train_dataset = ISPRSDataLoader('Train', args.dataset, args.dataset_path, args.training_images,
+                                            args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = ISPRSDataLoader('Validation', args.dataset, args.dataset_path, args.testing_images,
+                                           args.crop_size, args.crop_size,
+                                           mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == '5Billion':
+            print('---- training data ----')
+            train_dataset = DataLoader5Billion('Full_train', args.dataset, args.dataset_path, args.training_images,
+                                               args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoader5Billion('Full_test', args.dataset, args.dataset_path, args.testing_images,
+                                              args.crop_size, args.crop_size,
+                                              mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Road':
             print('---- training data ----')
             train_dataset = DataLoaderRoad('Train', args.dataset, args.dataset_path, args.training_images,
@@ -656,7 +677,7 @@ if __name__ == '__main__':
                 # Computing test.
                 # acc, nacc, f1_s, kappa, track_cm
                 acc, nacc, f1_s, kappa, _ = test(test_dataloader, criterion, model, epoch)
-                save_best_models(model, optimizer, args.output_path, best_records, epoch, kappa)
+                save_best_models(model, optimizer, args.output_path, best_records, epoch, f1_s)
             # calculate patches to sample
             if args.dynamic_sampler and epoch % NEW_SAMPLE_INTERVAL == 0:
                 diff_maps = train_full_map(train_dataloader, criterion, model, epoch)
@@ -715,6 +736,12 @@ if __name__ == '__main__':
         if args.dataset == 'River':
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
                                       args.crop_size, args.stride_crop, output_path=args.output_path)
+        elif args.dataset == 'Vaihingen':
+            test_dataset = ISPRSDataLoader('Validation', args.dataset, args.dataset_path, args.testing_images,
+                                           args.crop_size, args.crop_size, output_path=args.output_path)
+        elif args.dataset == '5Billion':
+            test_dataset = DataLoader5Billion('Full_test', args.dataset, args.dataset_path, args.testing_images,
+                                              args.crop_size, args.stride_crop, output_path=args.output_path)
         elif args.dataset == 'Tree':
             test_dataset = DataLoaderTree('Test', args.dataset, args.dataset_path, args.testing_images,
                                           args.crop_size, args.stride_crop, output_path=args.output_path)
@@ -764,33 +791,128 @@ if __name__ == '__main__':
         test_full_map(test_dataloader, criterion, model, epoch, args.output_path)
     elif args.operation == 'Plot':
         print('---- plotting ----')
-        best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
-        index = 0
-        for i in range(len(best_records)):
-            if best_records[index]['nacc'] < best_records[i]['nacc']:
-                index = i
+        if args.model_path is None:
+            print('loading from best_records')
+            best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
+            index = 0
+            for i in range(len(best_records)):
+                if best_records[index]['kappa'] < best_records[i]['kappa']:
+                    index = i
+            epoch = int(best_records[index]['epoch'])
+            cur_model = 'model_' + str(epoch) + '.pth'
+        else:
+            print('loading from args.model_path')
+            epoch = int(args.model_path[:-4].split('_')[-1])
+            cur_model = args.model_path
 
-        test_dataset = DataLoader('Plot', args.dataset_path, args.testing_images,
-                                  args.crop_size, args.stride_crop, output_path=args.output_path)
+        if args.dataset == 'River':
+            print('---- training data ----')
+            train_dataset = DataLoader('Full_train', args.dataset, args.dataset_path, args.training_images,
+                                       args.crop_size, args.stride_crop, output_path=args.output_path, crop=args.crop)
+            print('---- testing data ----')
+            test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
+                                      args.crop_size, args.crop_size,  # args.stride_crop,
+                                      mean=train_dataset.mean, std=train_dataset.std, crop=args.crop)
+        elif args.dataset == '5Billion':
+            print('---- training data ----')
+            train_dataset = DataLoader5Billion('Full_train', args.dataset, args.dataset_path, args.training_images,
+                                               args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoader5Billion('Full_test', args.dataset, args.dataset_path, args.testing_images,
+                                              args.crop_size, args.crop_size,
+                                              mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Road':
+            print('---- training data ----')
+            train_dataset = DataLoaderRoad('Train', args.dataset, args.dataset_path, args.training_images,
+                                           args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.crop_size,
+                                          mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Coffee_Crop':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffeeCrop('Train', args.dataset, args.dataset_path, args.training_images,
+                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffeeCrop('Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.crop_size,
+                                                mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Orange':
+            print('---- training data ----')
+            train_dataset = DataLoaderOrange('Train', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
+                                             output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path,
+                                            args.crop_size, args.crop_size,  # args.stride_crop,
+                                            mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Coffee':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffee('Train', args.dataset, args.dataset_path, args.training_images,
+                                             args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffee('Test', args.dataset, args.dataset_path, args.testing_images,
+                                            args.crop_size, args.stride_crop,
+                                            mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Coffee_Full':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffeeFull('Full_Train', args.dataset, args.dataset_path, args.training_images,
+                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.stride_crop,
+                                                mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Tree':
+            print('---- training data ----')
+            train_dataset = DataLoaderTree('Train', args.dataset, args.dataset_path, args.training_images,
+                                           args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderTree('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.crop_size,
+                                          mean=train_dataset.mean, std=train_dataset.std)
+        else:
+            raise NotImplementedError("Dataset " + args.dataset + " not implemented")
+
+        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                       shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
 
         # network
         if args.model == 'WideResNet':
-            model = LearntPrototypes(FCNWideResNet50(test_dataset.num_classes, pretrained=True, classif=False),
-                                     squared=False, n_prototypes=1, embedding_dim=2560)
+            model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True,
+                                                     skip_layers='2_4', classif=False),
+                                     squared=False, n_prototypes=1, embedding_dim=2560)  # original
+        elif args.model == 'WideResNet_4':
+            model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True,
+                                                     skip_layers='1_2_3_4', classif=False),
+                                     squared=True, dist=args.distance, n_prototypes=1, embedding_dim=3840)
+        elif args.model == 'DenseNet121':
+            model = LearntPrototypes(FCNDenseNet121(train_dataset.num_classes, pretrained=True,
+                                                    skip_layers='1_2_3_4', classif=False),
+                                     squared=True, dist=args.distance, n_prototypes=1, embedding_dim=1920)
+        elif args.model == 'UNet':
+            model = LearntPrototypes(UNet(train_dataset.num_classes, input_channels=3,
+                                          skip_layers='1_2_3_4', classif=False),
+                                     squared=True, dist=args.distance, n_prototypes=1, embedding_dim=512)
+        elif args.model == 'EfficientNetB0':
+            model = LearntPrototypes(FCNEfficientNetB0(train_dataset.num_classes, pretrained=True, classif=False),
+                                     squared=True, n_prototypes=1, embedding_dim=2096)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 
-        epoch = int(best_records[index]['epoch'])
         print("loading model_" + str(epoch) + '.pth')
-        model.load_state_dict(torch.load(os.path.join(args.output_path, 'model_' + str(epoch) + '.pth')))
+        model.load_state_dict(torch.load(os.path.join(args.output_path, cur_model)))
         model.cuda()
 
         print('---- extracting feat test ----')
-        feats, lbs = general_feature_extractor(test_dataloader, model)
-        lbs = lbs.reshape(-1)
-        print('feats', feats.shape, lbs.shape, np.bincount(lbs[0:100000]))
-        project_data(feats[0:100000, :], lbs[0:100000], args.output_path + 'plot.png', pca_n_components=50)
+        print('extracting training features')
+        train_feats, train_lbs = general_feature_extractor(train_dataloader, model.model, amount=100000)
+        print('extracting testing features')
+        test_feats, test_lbs = general_feature_extractor(test_dataloader, model.model, amount=100000)
+        print(train_feats.shape, train_lbs.shape, test_feats.shape, test_lbs.shape,
+              np.bincount(train_lbs), np.bincount(test_lbs))
+        print('plotting')
+        project_data(model.prototypes.cpu().detach().numpy(), train_feats, train_lbs, test_feats, test_lbs,
+                     args.output_path + 'plot.png', num_samples=10000, pca_n_components=50)
     else:
         raise NotImplementedError("Operation " + args.operation + " not implemented")

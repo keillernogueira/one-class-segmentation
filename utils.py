@@ -1,5 +1,6 @@
 import os
 import argparse
+import math
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -45,9 +46,13 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def save_best_models(net, optimizer, output_path, best_records, epoch, kappa, num_saves=3, track_mean=None):
+def save_best_models(net, optimizer, output_path, best_records, epoch, metric, num_saves=3, track_mean=None):
+    print('check', math.isnan(metric))
+    if math.isnan(metric):
+        metric = 0.0
+    print('after metric', metric)
     if len(best_records) < num_saves:
-        best_records.append({'epoch': epoch, 'kappa': kappa, 'track_mean': track_mean})
+        best_records.append({'epoch': epoch, 'kappa': metric, 'track_mean': track_mean})
 
         torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
         # torch.save(optimizer.state_dict(), os.path.join(output_path, 'opt_' + str(epoch) + '.pth'))
@@ -57,8 +62,10 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, kappa, nu
         for i, r in enumerate(best_records):
             if best_records[min_index]['kappa'] > best_records[i]['kappa']:
                 min_index = i
+        print('before', best_records, best_records[min_index], metric,
+              best_records[min_index]['kappa'], metric > best_records[min_index]['kappa'])
         # check if currect acc is greater than min saved acc
-        if kappa > best_records[min_index]['kappa']:
+        if metric > best_records[min_index]['kappa']:
             # if it is, delete previous files
             min_step = str(best_records[min_index]['epoch'])
 
@@ -66,23 +73,86 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, kappa, nu
             # os.remove(os.path.join(output_path, 'opt_' + min_step + '.pth'))
 
             # replace min value with current
-            best_records[min_index] = {'epoch': epoch, 'kappa': kappa, 'track_mean': track_mean}
+            best_records[min_index] = {'epoch': epoch, 'kappa': metric, 'track_mean': track_mean}
 
             # save current model
             torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
             # torch.save(optimizer.state_dict(), os.path.join(output_path, 'opt_' + str(epoch) + '.pth'))
+    print('after', best_records)
     np.save(os.path.join(output_path, 'best_records.npy'), best_records)
 
 
-def project_data(data, labels, save_name, pca_n_components=50):
-    pca_model = decomposition.PCA(n_components=pca_n_components, random_state=12345)
-    pca_data = pca_model.fit_transform(data)
-    tsne_model = TSNE(n_components=2, n_jobs=-1, learning_rate='auto', init='random')
-    tsne_data = tsne_model.fit_transform(pca_data)
+def project_data(prototype, train_data, train_labels, test_data, test_labels, save_name,
+                 num_samples=1000, pca_n_components=50):
+    # distance between all embeddings and the prototype
+    train_dists = np.linalg.norm(train_data[:, np.newaxis, :] - prototype[np.newaxis, :, :], axis=-1)
+    test_dists = np.linalg.norm(test_data[:, np.newaxis, :] - prototype[np.newaxis, :, :], axis=-1)
+
+    train_pos_data = train_data[np.where(train_labels == 1)]
+    train_pos_dist = np.squeeze(train_dists[np.where(train_labels == 1)])
+    train_neg_data = train_data[np.where(train_labels == 0)]
+    train_neg_dist = np.squeeze(train_dists[np.where(train_labels == 0)])
+
+    test_pos_data = test_data[np.where(test_labels == 1)]
+    test_pos_dist = np.squeeze(test_dists[np.where(test_labels == 1)])
+    test_neg_data = test_data[np.where(test_labels == 0)]
+    test_neg_dist = np.squeeze(test_dists[np.where(test_labels == 0)])
+
+    print(train_dists.shape, test_dists.shape,
+          train_pos_data.shape, train_neg_data.shape, train_pos_dist.shape, train_neg_dist.shape,
+          test_pos_data.shape, test_neg_data.shape, test_pos_dist.shape, test_neg_dist.shape,)
+
+    train_pos_zip = zip(train_pos_data, train_pos_dist)
+    train_neg_zip = zip(train_neg_data, train_neg_dist)
+    test_pos_zip = zip(test_pos_data, test_pos_dist)
+    test_neg_zip = zip(test_neg_data, test_neg_dist)
+
+    train_pos_sorted = list(sorted(train_pos_zip, key=lambda x: x[1]))
+    train_neg_sorted = list(sorted(train_neg_zip, key=lambda x: x[1]))
+    test_pos_sorted = list(sorted(test_pos_zip, key=lambda x: x[1]))
+    test_neg_sorted = list(sorted(test_neg_zip, key=lambda x: x[1]))
+
+    # train_neg_sorted = list(train_neg_sorted)
+    # print(np.asarray(train_neg_sorted).shape)
+    # print(train_neg_sorted[0][1], train_neg_sorted[1][1], train_neg_sorted[2][1])
+    # print(train_neg_sorted[-3][1], train_neg_sorted[-2][1], train_neg_sorted[-1][1])
+
+    selected_train_pos = train_pos_sorted[:min(num_samples, len(train_pos_sorted))]
+    selected_train_neg = train_neg_sorted[-min(num_samples, len(train_neg_sorted)):]
+    selected_test_pos = test_pos_sorted[:min(num_samples, len(test_pos_sorted))]
+    selected_test_neg = test_neg_sorted[-min(num_samples, len(test_neg_sorted)):]
+
+    train_pos, train_pos_dist = map(list, zip(*selected_train_pos))
+    train_neg, train_neg_dist = map(list, zip(*selected_train_neg))
+    test_pos, test_pos_dist = map(list, zip(*selected_test_pos))
+    test_neg, test_neg_dist = map(list, zip(*selected_test_neg))
+
+    print(np.asarray(train_pos).shape, np.asarray(train_pos_dist).shape, train_pos_dist[0:3],
+          np.asarray(train_neg).shape, np.asarray(train_neg_dist).shape, train_neg_dist[0:3],
+          np.asarray(test_pos).shape, np.asarray(test_pos_dist).shape, test_pos_dist[0:3],
+          np.asarray(test_neg).shape, np.asarray(test_neg_dist).shape, test_neg_dist[0:3],
+          prototype.shape)
+
+    data = np.concatenate((train_pos, train_neg, test_pos, test_neg, prototype))
+    labels = np.concatenate((np.ones(len(train_neg), dtype=int),
+                             np.full(len(test_neg), 2, dtype=int),
+                             np.full(len(train_pos), 3, dtype=int),
+                             np.full(len(test_pos), 4, dtype=int),
+                             np.asarray([0])))
+
+    print('final', data.shape, labels.shape, np.bincount(labels))
+
+    # pca_model = decomposition.PCA(n_components=pca_n_components, random_state=12345)
+    # pca_data = pca_model.fit_transform(data)
+    # tsne_model = TSNE(n_components=2, n_jobs=-1, learning_rate='auto', init='random')  # original
+    tsne_model = TSNE(n_components=2, perplexity=50, early_exaggeration=70, n_jobs=-1,
+                      init='pca', learning_rate=50, n_iter=5000)
+    tsne_data = tsne_model.fit_transform(data)
+    print('tsne_data', tsne_data.shape)
 
     plt.figure(figsize=(16, 10))
     sns.scatterplot(x=tsne_data[:, 0], y=tsne_data[:, 1], hue=labels,
-                    palette=sns.color_palette("hls", 2), legend="full", alpha=0.3)
+                    palette=sns.color_palette("hls", 5), legend="full", alpha=0.3)
     # plt.show()
     plt.savefig(save_name)
 

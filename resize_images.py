@@ -45,5 +45,6 @@ if __name__ == '__main__':
     output_path_final = args.output_image_path + '_disk' + str(args.disk_size) + '_resize' + \
                         str(args.resize_ratio) + '_quality' + str(args.quality) + '.jpg'
 
-    dilate_image(args.input_image_path, output_path_disk, args.disk_size)
-    resize_image(output_path_disk, output_path_final, args.resize_ratio, args.quality)
+    # dilate_image(args.input_image_path, output_path_disk, args.disk_size)
+    # resize_image(output_path_disk, output_path_final, args.resize_ratio, args.quality)
+    resize_image(args.input_image_path, args.output_image_path + '_resize' + str(args.resize_ratio) + '_' + str(args.quality) + '.jpg', args.resize_ratio, args.quality)

@@ -18,6 +18,8 @@ from dataloaders.dataloader_coffee import DataLoaderCoffee
 from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
 from dataloaders.dataloader_coffee_crop import DataLoaderCoffeeCrop
 from dataloaders.dataloader_tree import DataLoaderTree
+from dataloaders.dataloader_5billion import DataLoader5Billion
+from dataloaders.isprs_dataloader import ISPRSDataLoader
 
 from config import *
 from utils import *
@@ -28,6 +30,7 @@ from focal_loss import BinaryFocalLoss, FocalLossV2
 from unified_focal_loss import UnifiedFocalLoss
 from dual_focal_loss import DualFocalLoss
 from logcosh_tversky_loss import SegmentationLosses
+from wce_lovasz_loss import WCELovaszLoss
 
 
 def test_full_map_one_map(test_loader, net, epoch, output_path):
@@ -144,7 +147,7 @@ def test_full_map(test_loader, net, epoch, output_path):
         # Iterating over batches.
         for i, data in enumerate(test_loader):
             # Obtaining images, labels and paths for batch.
-            inps, labs, cur_maps, cur_xs, cur_ys = data
+            inps, labs, cur_maps, cur_xs, cur_ys = data[0], data[1], data[2], data[3], data[4]
 
             # Casting to cuda variables.
             inps_c = Variable(inps).cuda()
@@ -411,7 +414,8 @@ if __name__ == '__main__':
 
     # dataset options
     parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
-                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full', 'Road', 'Coffee_Crop', 'Tree'])
+                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full', '5Billion',
+                                 'Vaihingen', 'Road', 'Coffee_Crop', 'Tree'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
     parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
     parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
@@ -423,7 +427,8 @@ if __name__ == '__main__':
                         help='Model to be used.',
                         choices=['WideResNet', 'WideResNet_4', 'EfficientNetB0', 'DenseNet121'])
     parser.add_argument('--loss', type=str, required=True, default=None, help='Loss function to be used.',
-                        choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal', 'UnifiedFocal', 'DualFocal', 'DUPnet'])
+                        choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal', 'UnifiedFocal',
+                                 'DualFocal', 'DUPnet', 'WCELovasz'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
                         help='Path to a trained model that can be load and used for inference.')
     parser.add_argument('--weights', type=float, nargs='+', default=[1.0, 1.0], help='Weight Loss.')
@@ -447,6 +452,22 @@ if __name__ == '__main__':
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
                                       args.crop_size, args.stride_crop,  # args.crop_size,
                                       mean=train_dataset.mean, std=train_dataset.std, crop=args.crop)
+        elif args.dataset == 'Vaihingen':
+            print('---- training data ----')
+            train_dataset = ISPRSDataLoader('Train', args.dataset, args.dataset_path, args.training_images,
+                                            args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = ISPRSDataLoader('Validation', args.dataset, args.dataset_path, args.testing_images,
+                                           args.crop_size, args.crop_size,
+                                           mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == '5Billion':
+            print('---- training data ----')
+            train_dataset = DataLoader5Billion('Full_train', args.dataset, args.dataset_path, args.training_images,
+                                               args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoader5Billion('Full_test', args.dataset, args.dataset_path, args.testing_images,
+                                              args.crop_size, args.stride_crop,
+                                              mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Road':
             print('---- training data ----')
             train_dataset = DataLoaderRoad('Train', args.dataset, args.dataset_path, args.training_images,
@@ -536,6 +557,8 @@ if __name__ == '__main__':
         elif args.loss == 'DUPnet':
             criterion = SegmentationLosses(weight=torch.FloatTensor(args.weights).cuda(),
                                            cuda=True).build_loss(mode='our')
+        elif args.loss == 'WCELovasz':
+            criterion = WCELovaszLoss(weight=torch.FloatTensor(args.weights).cuda()).cuda()
         elif args.loss == 'DualFocal':
             criterion = DualFocalLoss(alpha=1, beta=1, gamma=1, rho=1).cuda()
         elif args.loss == 'UnifiedFocal':
@@ -591,7 +614,7 @@ if __name__ == '__main__':
             if epoch % VAL_INTERVAL == 0:
                 # Computing test.
                 acc, nacc, f1_s, kappa, _ = test(test_dataloader, model, epoch, args.loss)
-                save_best_models(model, optimizer, args.output_path, best_records, epoch, kappa)
+                save_best_models(model, optimizer, args.output_path, best_records, epoch, f1_s)
 
             scheduler.step()
     elif args.operation == 'Test':
@@ -637,6 +660,12 @@ if __name__ == '__main__':
         if args.dataset == 'River':
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
                                       args.crop_size, args.stride_crop, output_path=args.output_path)
+        elif args.dataset == 'Vaihingen':
+            test_dataset = ISPRSDataLoader('Validation', args.dataset, args.dataset_path, args.testing_images,
+                                           args.crop_size, args.crop_size, output_path=args.output_path)
+        elif args.dataset == '5Billion':
+            test_dataset = DataLoader5Billion('Full_test', args.dataset, args.dataset_path, args.testing_images,
+                                              args.crop_size, args.stride_crop, output_path=args.output_path)
         elif args.dataset == 'Road':
             test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
                                           args.crop_size, args.stride_crop, output_path=args.output_path)
