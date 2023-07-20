@@ -47,10 +47,8 @@ def str2bool(v):
 
 
 def save_best_models(net, optimizer, output_path, best_records, epoch, metric, num_saves=3, track_mean=None):
-    print('check', math.isnan(metric))
     if math.isnan(metric):
         metric = 0.0
-    print('after metric', metric)
     if len(best_records) < num_saves:
         best_records.append({'epoch': epoch, 'kappa': metric, 'track_mean': track_mean})
 
@@ -83,7 +81,7 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, metric, n
 
 
 def project_data(prototype, train_data, train_labels, test_data, test_labels, save_name,
-                 num_samples=1000, pca_n_components=50):
+                 num_samples=1000, pca_n_components=50, method='sns', train_test='test'):
     # distance between all embeddings and the prototype
     train_dists = np.linalg.norm(train_data[:, np.newaxis, :] - prototype[np.newaxis, :, :], axis=-1)
     test_dists = np.linalg.norm(test_data[:, np.newaxis, :] - prototype[np.newaxis, :, :], axis=-1)
@@ -133,26 +131,114 @@ def project_data(prototype, train_data, train_labels, test_data, test_labels, sa
           np.asarray(test_neg).shape, np.asarray(test_neg_dist).shape, test_neg_dist[0:3],
           prototype.shape)
 
-    data = np.concatenate((train_pos, train_neg, test_pos, test_neg, prototype))
-    labels = np.concatenate((np.ones(len(train_neg), dtype=int),
-                             np.full(len(test_neg), 2, dtype=int),
-                             np.full(len(train_pos), 3, dtype=int),
-                             np.full(len(test_pos), 4, dtype=int),
-                             np.asarray([0])))
+    # all data
+    # data = np.concatenate((train_pos, train_neg, test_pos, test_neg, prototype))
+    # labels = np.concatenate((np.ones(len(train_neg), dtype=int),
+    #                          np.full(len(test_neg), 2, dtype=int),
+    #                          np.full(len(train_pos), 3, dtype=int),
+    #                          np.full(len(test_pos), 4, dtype=int),
+    #                          np.asarray([0])))
+
+    # only test data
+    if train_test == 'test':
+        data = np.concatenate((test_neg, test_pos, prototype))
+        labels = np.concatenate((np.full(len(test_neg), 1, dtype=int),
+                                 np.full(len(test_pos), 2, dtype=int),
+                                 np.asarray([0])))
+    else:
+        # only train data
+        data = np.concatenate((train_neg, train_pos, prototype))
+        labels = np.concatenate((np.full(len(train_neg), 1, dtype=int),
+                                 np.full(len(train_pos), 2, dtype=int),
+                                 np.asarray([0])))
 
     print('final', data.shape, labels.shape, np.bincount(labels))
 
     # pca_model = decomposition.PCA(n_components=pca_n_components, random_state=12345)
     # pca_data = pca_model.fit_transform(data)
-    # tsne_model = TSNE(n_components=2, n_jobs=-1, learning_rate='auto', init='random')  # original
     tsne_model = TSNE(n_components=2, perplexity=50, early_exaggeration=70, n_jobs=-1,
                       init='pca', learning_rate=50, n_iter=5000)
     tsne_data = tsne_model.fit_transform(data)
     print('tsne_data', tsne_data.shape)
+    np.save(save_name[:-4] + '_data.npy', tsne_data)
+    np.save(save_name[:-4] + '_labels.npy', labels)
 
-    plt.figure(figsize=(16, 10))
-    sns.scatterplot(x=tsne_data[:, 0], y=tsne_data[:, 1], hue=labels,
-                    palette=sns.color_palette("hls", 5), legend="full", alpha=0.3)
+    if method == 'matplot':
+        fig, ax = plt.subplots()
+        ax.scatter(tsne_data[:, 0], tsne_data[:, 1], s=100, c=sns.color_palette("hls", 5), alpha=1.0)
+    else:
+        fig, ax = plt.subplots(figsize=(16, 10))
+        p = sns.scatterplot(x=tsne_data[:-1, 0], y=tsne_data[:-1, 1], hue=labels[:-1],
+                            palette=sns.color_palette("hls", 2), legend="full", alpha=0.3)
+        plt.scatter(tsne_data[-1, 0], tsne_data[-1, 1], c='black', marker='*', s=400)  # prototype
+
+        p.set(xticklabels=[])
+        p.set(xlabel=None)
+        p.tick_params(bottom=False)
+
+        p.set(yticklabels=[])
+        p.set(ylabel=None)
+        p.tick_params(left=False)
+
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(handles, ['Background', 'Foreground'], loc='upper right', fontsize=20)
+    # plt.show()
+    plt.savefig(save_name)
+
+
+def project_data_general(train_data, train_labels, test_data, test_labels, save_name,
+                         num_samples=1000, pca_n_components=50, method='sns'):
+    # distance between all embeddings and the prototype
+
+    train_pos_data = train_data[np.where(train_labels == 1)]
+    train_neg_data = train_data[np.where(train_labels == 0)]
+    test_pos_data = test_data[np.where(test_labels == 1)]
+    test_neg_data = test_data[np.where(test_labels == 0)]
+
+    selected_train_pos = train_pos_data[np.random.randint(len(train_pos_data),
+                                                          size=num_samples if num_samples != -1 else len(train_pos_data)), :]
+    selected_train_neg = train_neg_data[np.random.randint(len(train_neg_data),
+                                                          size=num_samples if num_samples != -1 else len(train_neg_data)), :]
+    selected_test_pos = test_pos_data[np.random.randint(len(test_pos_data),
+                                                        size=num_samples if num_samples != -1 else len(test_pos_data)), :]
+    selected_test_neg = test_neg_data[np.random.randint(len(test_neg_data),
+                                                        size=num_samples if num_samples != -1 else len(test_neg_data)),:]
+
+    print('1', np.asarray(selected_train_pos).shape, np.asarray(selected_train_neg).shape,
+          np.asarray(selected_test_pos).shape, np.asarray(selected_test_neg).shape)
+
+    # only test data
+    data = np.concatenate((selected_test_neg, selected_test_pos))
+    labels = np.concatenate((np.full(len(selected_test_neg), 1, dtype=int),
+                             np.full(len(selected_test_pos), 2, dtype=int)))
+
+    print('final', data.shape, labels.shape, np.bincount(labels))
+
+    # pca_model = decomposition.PCA(n_components=pca_n_components, random_state=12345)
+    # pca_data = pca_model.fit_transform(data)
+    tsne_model = TSNE(n_components=2, perplexity=50, early_exaggeration=70, n_jobs=-1,
+                      init='pca', learning_rate=50, n_iter=5000)
+    tsne_data = tsne_model.fit_transform(data)
+    print('tsne_data', tsne_data.shape)
+    np.save(save_name[:-4] + '_data.npy', tsne_data)
+    np.save(save_name[:-4] + '_labels.npy', labels)
+
+    fig, ax = plt.subplots(figsize=(16, 10))
+    p = sns.scatterplot(x=tsne_data[:, 0], y=tsne_data[:, 1], hue=labels,
+                        palette=sns.color_palette("hls", 2), legend="full", alpha=0.3)
+    # plt.scatter(tsne_data[-1, 0], tsne_data[-1, 1], c='black', marker='*', s=400)  # prototype
+
+    p.set(xticklabels=[])
+    p.set(xlabel=None)
+    p.tick_params(bottom=False)
+
+    p.set(yticklabels=[])
+    p.set(ylabel=None)
+    p.tick_params(left=False)
+
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, ['Background', 'Foreground'], loc='upper right', fontsize=20)
+
     # plt.show()
     plt.savefig(save_name)
 
@@ -323,3 +409,36 @@ def calculate_mask_distribution(dataset_path, images):
         print("bin ", img, bin)
         overall_distr += bin
     print("overall distr", overall_distr)
+
+
+if __name__ == "__main__":
+    tsne_data = np.load('C:\\Users\\keill\\Desktop\\river_plot_data.npy', allow_pickle=True)
+    labels = np.load('C:\\Users\\keill\\Desktop\\river_plot_labels.npy', allow_pickle=True)
+    # labels = np.concatenate((np.ones(len(train_neg), dtype=int),
+    #                          np.full(len(test_neg), 2, dtype=int),
+    #                          np.full(len(train_pos), 3, dtype=int),
+    #                          np.full(len(test_pos), 4, dtype=int),
+    #                          np.asarray([0])))
+    print(tsne_data.shape, labels.shape)
+    labels[np.where(labels == 2)] = 1
+    labels[np.where(labels == 4)] = 3
+
+    fig, ax = plt.subplots(figsize=(16, 10))
+    # plt.scatter(tsne_data[:-1, 0], tsne_data[:-1, 1], s=100, c=labels[:-1], alpha=1.0, cmap=plt.cm.jet)
+    # plt.scatter(tsne_data[-1, 0], tsne_data[-1, 1], c='red')
+    # plt.figure(figsize=(16, 10))
+    p = sns.scatterplot(x=tsne_data[:-1, 0], y=tsne_data[:-1, 1], hue=labels[:-1],
+                        palette=sns.color_palette("hls", 2), legend="full", alpha=0.3)
+    plt.scatter(tsne_data[-1, 0], tsne_data[-1, 1], c='black', marker='*', s=400)
+
+    p.set(xticklabels=[])
+    p.set(xlabel=None)
+    p.tick_params(bottom=False)
+
+    p.set(yticklabels=[])
+    p.set(ylabel=None)
+    p.tick_params(left=False)
+
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles, ['Background', 'Foreground'], loc='upper right', fontsize=20)
+    plt.savefig('C:\\Users\\keill\\Desktop\\test.png')

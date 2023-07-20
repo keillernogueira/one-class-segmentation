@@ -7,6 +7,14 @@
 - main_knn.py: Sem detach. Predição com kNN.
 - main_track_mean.py: Média atualizada ao longo do treino.
 
+Pastas:
+
+- prototypical: versão principal, somente 1 prototipo, contrastive MEAN
+- prototypical_st: smooth taylor: https://github.com/garygsw/smooth-taylor/tree/master
+- prototypical_v2: analisando contribuicao de cada parte da loss e analisando cross entropy?
+- prototypical_v3: multiplos prototipos, contrastive MEAN
+- prototypical_v4: Constrastive SUM
+
 ## Atualizações possiveis:
 
 - [ ] parar de otimizar o prototype a partir de um ponto

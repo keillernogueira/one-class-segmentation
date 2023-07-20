@@ -320,6 +320,7 @@ def train(train_loader, net, criterion, optimizer, epoch, output):
     sys.stdout.flush()
 
 
+# https://github.com/garygsw/smooth-taylor/tree/master
 def calculate_smooth_taylor(test_loader, net, output_path, noise_scale=0.5, num_roots=150):
     prob_im = np.zeros([test_loader.dataset.labels[0].shape[0],
                         test_loader.dataset.labels[0].shape[1], 3], dtype=np.float64)

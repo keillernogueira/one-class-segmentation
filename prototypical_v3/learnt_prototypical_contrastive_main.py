@@ -13,14 +13,21 @@ from torch.autograd import Variable
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 from dataloaders.dataloader import DataLoader
+from dataloaders.dataloader_road import DataLoaderRoad
 from dataloaders.dataloader_orange import DataLoaderOrange
 from dataloaders.dataloader_coffee import DataLoaderCoffee
 from dataloaders.dataloader_coffee_full import DataLoaderCoffeeFull
+from dataloaders.dataloader_coffee_crop import DataLoaderCoffeeCrop
+from dataloaders.dataloader_tree import DataLoaderTree
+from dataloaders.dataloader_5billion import DataLoader5Billion
+from dataloaders.isprs_dataloader import ISPRSDataLoader
 
 from config import *
 from utils import *
 from networks.FCNWideResNet50 import FCNWideResNet50
 from networks.efficientnet import FCNEfficientNetB0
+from networks.FCNDenseNet121 import FCNDenseNet121
+from networks.unet import UNet
 
 from feat_ext import general_feature_extractor
 from contrastive_loss import ContrastiveLoss
@@ -280,7 +287,8 @@ if __name__ == '__main__':
 
     # dataset options
     parser.add_argument('--dataset', type=str, required=True, help='Dataset.',
-                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full'])
+                        choices=['River', 'Orange', 'Coffee', 'Coffee_Full', '5Billion',
+                                 'Coffee_Crop', 'Road', 'Tree', 'Vaihingen'])
     parser.add_argument('--dataset_path', type=str, required=True, help='Dataset path.')
     parser.add_argument('--training_images', type=str, nargs="+", required=False, help='Training image names.')
     parser.add_argument('--testing_images', type=str, nargs="+", required=False, help='Testing image names.')
@@ -289,7 +297,8 @@ if __name__ == '__main__':
 
     # model options
     parser.add_argument('--model', type=str, required=True, default=None,
-                        help='Model to be used.', choices=['WideResNet', 'EfficientNetB0'])
+                        help='Model to be used.', choices=['WideResNet', 'WideResNet_4', 'UNet',
+                                                           'DenseNet121', 'EfficientNetB0'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
                         help='Path to a trained model that can be load and used for inference.')
     parser.add_argument('--weights', type=float, nargs='+', default=[1.0, 1.0], help='Weight Loss.')
@@ -306,6 +315,7 @@ if __name__ == '__main__':
     parser.add_argument('--miner', type=str2bool, default=False,
                         help='Miner hard samples and equalize number fo samples 1:1')
     parser.add_argument('--weight_sampler', type=str2bool, default=False, help='Use weight sampler for loader?')
+    parser.add_argument('--num_prototypes', type=int, default=1, help='Number of prototypes')
     args = parser.parse_args()
     print(sys.argv[0], args)
 
@@ -317,13 +327,47 @@ if __name__ == '__main__':
                                        args.crop_size, args.stride_crop, output_path=args.output_path)
             print('---- testing data ----')
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
-                                      args.crop_size, args.stride_crop, mean=train_dataset.mean, std=train_dataset.std)
+                                      args.crop_size, args.crop_size,  # args.stride_crop,
+                                      mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Vaihingen':
+            print('---- training data ----')
+            train_dataset = ISPRSDataLoader('Train', args.dataset, args.dataset_path, args.training_images,
+                                            args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = ISPRSDataLoader('Validation', args.dataset, args.dataset_path, args.testing_images,
+                                           args.crop_size, args.crop_size,
+                                           mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == '5Billion':
+            print('---- training data ----')
+            train_dataset = DataLoader5Billion('Full_train', args.dataset, args.dataset_path, args.training_images,
+                                               args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoader5Billion('Full_test', args.dataset, args.dataset_path, args.testing_images,
+                                              args.crop_size, args.crop_size,
+                                              mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Road':
+            print('---- training data ----')
+            train_dataset = DataLoaderRoad('Train', args.dataset, args.dataset_path, args.training_images,
+                                           args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.crop_size,
+                                          mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Coffee_Crop':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffeeCrop('Train', args.dataset, args.dataset_path, args.training_images,
+                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffeeCrop('Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.crop_size,
+                                                mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Orange':
             print('---- training data ----')
             train_dataset = DataLoaderOrange('Train', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
                                              output_path=args.output_path)
             print('---- testing data ----')
-            test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
+            test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path,
+                                            args.crop_size, args.crop_size,  # args.stride_crop,
                                             mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Coffee':
             print('---- training data ----')
@@ -335,12 +379,20 @@ if __name__ == '__main__':
                                             mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == 'Coffee_Full':
             print('---- training data ----')
-            train_dataset = DataLoaderCoffeeFull('Train', args.dataset, args.dataset_path, args.training_images,
+            train_dataset = DataLoaderCoffeeFull('Full_Train', args.dataset, args.dataset_path, args.training_images,
                                                  args.crop_size, args.stride_crop, output_path=args.output_path)
             print('---- testing data ----')
-            test_dataset = DataLoaderCoffeeFull('Test', args.dataset, args.dataset_path, args.testing_images,
+            test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
                                                 args.crop_size, args.stride_crop,
                                                 mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Tree':
+            print('---- training data ----')
+            train_dataset = DataLoaderTree('Train', args.dataset, args.dataset_path, args.training_images,
+                                           args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderTree('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.crop_size,
+                                          mean=train_dataset.mean, std=train_dataset.std)
         else:
             raise NotImplementedError("Dataset " + args.dataset + " not implemented")
 
@@ -348,23 +400,40 @@ if __name__ == '__main__':
             train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                                            shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
         else:
-            class_loader_weights = 1. / np.bincount(train_dataset.gen_classes)
-            samples_weights = class_loader_weights[train_dataset.gen_classes]
-            sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weights, len(samples_weights),
-                                                                     replacement=True)
-            train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                           num_workers=NUM_WORKERS, drop_last=False, sampler=sampler)
+            train_dataloader = sample_weight_train_loader(train_dataset, train_dataset.gen_classes, args.batch_size)
 
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
                                                       shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
 
+        # # network
+        # if args.model == 'WideResNet':
+        #     model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True, classif=False),
+        #                              squared=False, n_prototypes=2, embedding_dim=2560)
+        # elif args.model == 'EfficientNetB0':
+        #     model = LearntPrototypes(FCNEfficientNetB0(train_dataset.num_classes, pretrained=True, classif=False),
+        #                              squared=False, n_prototypes=2, embedding_dim=2096)
+        # else:
+        #     raise NotImplementedError("Network " + args.model + " not implemented")
         # network
         if args.model == 'WideResNet':
-            model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True, classif=False),
-                                     squared=False, n_prototypes=2, embedding_dim=2560)
+            model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True,
+                                                     skip_layers='2_4', classif=False),
+                                     squared=False, n_prototypes=args.num_prototypes, embedding_dim=2560)  # original
+        elif args.model == 'WideResNet_4':
+            model = LearntPrototypes(FCNWideResNet50(train_dataset.num_classes, pretrained=True,
+                                                     skip_layers='1_2_3_4', classif=False),
+                                     squared=True, n_prototypes=args.num_prototypes, embedding_dim=3840)
+        elif args.model == 'DenseNet121':
+            model = LearntPrototypes(FCNDenseNet121(train_dataset.num_classes, pretrained=True,
+                                                    skip_layers='1_2_3_4', classif=False),
+                                     squared=True, n_prototypes=args.num_prototypes, embedding_dim=1920)
+        elif args.model == 'UNet':
+            model = LearntPrototypes(UNet(train_dataset.num_classes, input_channels=3,
+                                          skip_layers='1_2_3_4', classif=False),
+                                     squared=True, n_prototypes=args.num_prototypes, embedding_dim=512)
         elif args.model == 'EfficientNetB0':
             model = LearntPrototypes(FCNEfficientNetB0(train_dataset.num_classes, pretrained=True, classif=False),
-                                     squared=False, n_prototypes=2, embedding_dim=2096)
+                                     squared=True, n_prototypes=args.num_prototypes, embedding_dim=2096)
         else:
             raise NotImplementedError("Network " + args.model + " not implemented")
 

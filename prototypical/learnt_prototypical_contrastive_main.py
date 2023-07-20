@@ -813,6 +813,14 @@ if __name__ == '__main__':
             test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
                                       args.crop_size, args.crop_size,  # args.stride_crop,
                                       mean=train_dataset.mean, std=train_dataset.std, crop=args.crop)
+        elif args.dataset == 'Vaihingen':
+            print('---- training data ----')
+            train_dataset = ISPRSDataLoader('Train', args.dataset, args.dataset_path, args.training_images,
+                                            args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = ISPRSDataLoader('Validation', args.dataset, args.dataset_path, args.testing_images,
+                                           args.crop_size, args.crop_size,
+                                           mean=train_dataset.mean, std=train_dataset.std)
         elif args.dataset == '5Billion':
             print('---- training data ----')
             train_dataset = DataLoader5Billion('Full_train', args.dataset, args.dataset_path, args.training_images,
@@ -913,6 +921,6 @@ if __name__ == '__main__':
               np.bincount(train_lbs), np.bincount(test_lbs))
         print('plotting')
         project_data(model.prototypes.cpu().detach().numpy(), train_feats, train_lbs, test_feats, test_lbs,
-                     args.output_path + 'plot.png', num_samples=10000, pca_n_components=50)
+                     args.output_path + 'plot.png', num_samples=5000, pca_n_components=50, train_test='test')
     else:
         raise NotImplementedError("Operation " + args.operation + " not implemented")

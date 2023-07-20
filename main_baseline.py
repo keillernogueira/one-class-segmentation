@@ -23,14 +23,19 @@ from dataloaders.isprs_dataloader import ISPRSDataLoader
 
 from config import *
 from utils import *
+from feat_ext import general_feature_extractor
+
 from networks.FCNWideResNet50 import FCNWideResNet50
 from networks.efficientnet import FCNEfficientNetB0
 from networks.FCNDenseNet121 import FCNDenseNet121
+# from networks.pfsegnet.pointflow_resnet_with_max_avg_pool import DeepR50_PF_maxavg_deeply
+
 from focal_loss import BinaryFocalLoss, FocalLossV2
 from unified_focal_loss import UnifiedFocalLoss
 from dual_focal_loss import DualFocalLoss
 from logcosh_tversky_loss import SegmentationLosses
 from wce_lovasz_loss import WCELovaszLoss
+# from networks.pfsegnet.loss import JointEdgeSegLightLossPfnet
 
 
 def test_full_map_one_map(test_loader, net, epoch, output_path):
@@ -408,7 +413,7 @@ if __name__ == '__main__':
 
     # general options
     parser.add_argument('--operation', type=str, required=True, help='Operation to be performed]',
-                        choices=['Train', 'Test', 'Plot', 'Full_Test'])
+                        choices=['Train', 'Test', 'Plot', 'Full_Test', 'Plot'])
     parser.add_argument('--output_path', type=str, required=True,
                         help='Path to save outcomes (such as images and trained models) of the algorithm.')
 
@@ -425,10 +430,10 @@ if __name__ == '__main__':
     # model options
     parser.add_argument('--model', type=str, required=True, default=None,
                         help='Model to be used.',
-                        choices=['WideResNet', 'WideResNet_4', 'EfficientNetB0', 'DenseNet121'])
+                        choices=['WideResNet', 'WideResNet_4', 'EfficientNetB0', 'DenseNet121', 'pfsegnet'])
     parser.add_argument('--loss', type=str, required=True, default=None, help='Loss function to be used.',
                         choices=['CE', 'BinaryCE', 'BinaryFocal', 'Focal', 'UnifiedFocal',
-                                 'DualFocal', 'DUPnet', 'WCELovasz'])
+                                 'DualFocal', 'DUPnet', 'WCELovasz', 'pfsegnet'])
     parser.add_argument('--model_path', type=str, required=False, default=None,
                         help='Path to a trained model that can be load and used for inference.')
     parser.add_argument('--weights', type=float, nargs='+', default=[1.0, 1.0], help='Weight Loss.')
@@ -531,6 +536,11 @@ if __name__ == '__main__':
         if args.model == 'WideResNet':
             model = FCNWideResNet50(1 if 'Binary' in args.loss else train_dataset.num_classes,
                                     pretrained=True, skip_layers='2_4', classif=True)
+        elif args.model == "pfsegnet":
+            criterion = JointEdgeSegLightLossPfnet(classes=2, edge_weight=25,
+                                                   seg_weight=1, ohem=True, dice=False).cuda()
+            model = DeepR50_PF_maxavg_deeply(num_classes=2, criterion=criterion, reduce_dim=16,
+                                             max_pool_size=14, avgpool_size=9, edge_points=128)
         elif args.model == 'WideResNet_4':
             model = FCNWideResNet50(1 if 'Binary' in args.loss else train_dataset.num_classes,
                                     pretrained=True, skip_layers='1_2_3_4', classif=True)
@@ -561,6 +571,9 @@ if __name__ == '__main__':
             criterion = WCELovaszLoss(weight=torch.FloatTensor(args.weights).cuda()).cuda()
         elif args.loss == 'DualFocal':
             criterion = DualFocalLoss(alpha=1, beta=1, gamma=1, rho=1).cuda()
+        elif args.loss == 'pfsegnet':
+            # define along with the network - just pass
+            pass
         elif args.loss == 'UnifiedFocal':
             # original
             # criterion = UnifiedFocalLoss(weight=torch.FloatTensor(args.weights).cuda(), delta=0.5, gamma=2).cuda()
@@ -705,5 +718,131 @@ if __name__ == '__main__':
         model.cuda()
 
         test_full_map(test_dataloader, model, epoch, args.output_path)
+    elif args.operation == 'Plot':
+        print('---- plotting ----')
+        if args.model_path is None:
+            print('loading from best_records')
+            best_records = np.load(os.path.join(args.output_path, 'best_records.npy'), allow_pickle=True)
+            index = 0
+            for i in range(len(best_records)):
+                if best_records[index]['kappa'] < best_records[i]['kappa']:
+                    index = i
+            epoch = int(best_records[index]['epoch'])
+            cur_model = 'model_' + str(epoch) + '.pth'
+        else:
+            print('loading from args.model_path')
+            epoch = int(args.model_path[:-4].split('_')[-1])
+            cur_model = args.model_path
+
+        if args.dataset == 'River':
+            print('---- training data ----')
+            train_dataset = DataLoader('Full_train', args.dataset, args.dataset_path, args.training_images,
+                                       args.crop_size, args.stride_crop, output_path=args.output_path, crop=args.crop)
+            print('---- testing data ----')
+            test_dataset = DataLoader('Full_test', args.dataset, args.dataset_path, args.testing_images,
+                                      args.crop_size, args.crop_size,  # args.stride_crop,
+                                      mean=train_dataset.mean, std=train_dataset.std, crop=args.crop)
+        elif args.dataset == 'Vaihingen':
+            print('---- training data ----')
+            train_dataset = ISPRSDataLoader('Train', args.dataset, args.dataset_path, args.training_images,
+                                            args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = ISPRSDataLoader('Validation', args.dataset, args.dataset_path, args.testing_images,
+                                           args.crop_size, args.crop_size,
+                                           mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == '5Billion':
+            print('---- training data ----')
+            train_dataset = DataLoader5Billion('Full_train', args.dataset, args.dataset_path, args.training_images,
+                                               args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoader5Billion('Full_test', args.dataset, args.dataset_path, args.testing_images,
+                                              args.crop_size, args.crop_size,
+                                              mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Road':
+            print('---- training data ----')
+            train_dataset = DataLoaderRoad('Train', args.dataset, args.dataset_path, args.training_images,
+                                           args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderRoad('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.crop_size,
+                                          mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Coffee_Crop':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffeeCrop('Train', args.dataset, args.dataset_path, args.training_images,
+                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffeeCrop('Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.crop_size,
+                                                mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Orange':
+            print('---- training data ----')
+            train_dataset = DataLoaderOrange('Train', args.dataset, args.dataset_path, args.crop_size, args.stride_crop,
+                                             output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderOrange('Test', args.dataset, args.dataset_path,
+                                            args.crop_size, args.crop_size,  # args.stride_crop,
+                                            mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Coffee':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffee('Train', args.dataset, args.dataset_path, args.training_images,
+                                             args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffee('Test', args.dataset, args.dataset_path, args.testing_images,
+                                            args.crop_size, args.stride_crop,
+                                            mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Coffee_Full':
+            print('---- training data ----')
+            train_dataset = DataLoaderCoffeeFull('Full_Train', args.dataset, args.dataset_path, args.training_images,
+                                                 args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderCoffeeFull('Full_Test', args.dataset, args.dataset_path, args.testing_images,
+                                                args.crop_size, args.stride_crop,
+                                                mean=train_dataset.mean, std=train_dataset.std)
+        elif args.dataset == 'Tree':
+            print('---- training data ----')
+            train_dataset = DataLoaderTree('Train', args.dataset, args.dataset_path, args.training_images,
+                                           args.crop_size, args.stride_crop, output_path=args.output_path)
+            print('---- testing data ----')
+            test_dataset = DataLoaderTree('Test', args.dataset, args.dataset_path, args.testing_images,
+                                          args.crop_size, args.crop_size,
+                                          mean=train_dataset.mean, std=train_dataset.std)
+        else:
+            raise NotImplementedError("Dataset " + args.dataset + " not implemented")
+
+        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                       shuffle=True, num_workers=NUM_WORKERS, drop_last=False)
+        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size,
+                                                      shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
+
+        # network
+        if args.model == 'WideResNet':
+            model = FCNWideResNet50(1 if 'Binary' in args.loss else train_dataset.num_classes,
+                                    pretrained=True, skip_layers='2_4', classif=True)
+        elif args.model == 'WideResNet_4':
+            model = FCNWideResNet50(1 if 'Binary' in args.loss else train_dataset.num_classes,
+                                    pretrained=True, skip_layers='1_2_3_4', classif=True)
+        elif args.model == 'DenseNet121':
+            model = FCNDenseNet121(train_dataset.num_classes, pretrained=True, skip_layers='1_2_3_4', classif=True)
+        elif args.model == 'EfficientNetB0':
+            model = FCNEfficientNetB0(1 if 'Binary' in args.loss else train_dataset.num_classes,
+                                      pretrained=True, classif=True)
+        else:
+            raise NotImplementedError("Network " + args.model + " not implemented")
+        # model.cuda()
+
+        print("loading model_" + str(epoch) + '.pth')
+        model.load_state_dict(torch.load(os.path.join(args.output_path, cur_model)))
+        model.cuda()
+
+        print('---- extracting feat test ----')
+        print('extracting training features')
+        train_feats, train_lbs = general_feature_extractor(train_dataloader, model, amount=100)
+        print('extracting testing features')
+        test_feats, test_lbs = general_feature_extractor(test_dataloader, model, amount=10000000)
+        print(train_feats.shape, train_lbs.shape, test_feats.shape, test_lbs.shape,
+              np.bincount(train_lbs), np.bincount(test_lbs))
+        print('plotting')
+        project_data_general(train_feats, train_lbs, test_feats, test_lbs,
+                             args.output_path + 'plot.png', num_samples=5000, pca_n_components=50)
     else:
         raise NotImplementedError("Operation " + args.operation + " not implemented")

@@ -27,7 +27,7 @@ class ContrastiveLoss(nn.Module):
         neg_data = data[(1 - labels).bool(), :]
         # print('2', pos_data.shape, neg_data.shape)
 
-        pos_data_min, _ = pos_data.min(1)
+        pos_data_min, _ = pos_data.min(1)  # for each sample, get the minimum value == the closest prototype
         neg_data = neg_data.flatten()
         # print('3', pos_data_min.shape, neg_data.shape)
 
