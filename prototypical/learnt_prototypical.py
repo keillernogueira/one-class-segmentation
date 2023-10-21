@@ -1,11 +1,12 @@
 # https://github.com/VSainteuf/metric-guided-prototypes-pytorch/blob/master/torch_prototypes/modules/prototypical_network.py
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class LearntPrototypes(nn.Module):
     def __init__(self, model, n_prototypes, embedding_dim, prototypes=None,
-                 squared=True, dist="euclidean", device="cuda"):
+                 squared=True, dist="euclidean", normalize=False, device="cuda"):
         """
         Args:
             model (nn.Module): feature extracting network
@@ -14,6 +15,7 @@ class LearntPrototypes(nn.Module):
             prototypes (tensor): Prototype tensor of shape (n_prototypes x embedding_dim),
             squared (bool): Whether to use the squared Euclidean distance or not
             dist (str): default 'euclidean', other possibility 'cosine'
+            normalize (bool): l2 normalization of the features
             device (str): device on which to declare the prototypes (cpu/cuda)
         """
         super(LearntPrototypes, self).__init__()
@@ -23,9 +25,12 @@ class LearntPrototypes(nn.Module):
         self.n_prototypes = n_prototypes
         self.squared = squared
         self.dist = dist
+        self.normalize = normalize
 
     def forward(self, data):
         _, embeddings = self.model(data)
+        if self.normalize:
+            embeddings = F.normalize(embeddings, dim=1)
 
         b, c, h, w = embeddings.shape
         embeddings = embeddings.view(b, c, h * w).transpose(1, 2).contiguous().view(b * h * w, c)

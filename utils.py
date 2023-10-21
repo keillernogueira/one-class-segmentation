@@ -60,8 +60,8 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, metric, n
         for i, r in enumerate(best_records):
             if best_records[min_index]['kappa'] > best_records[i]['kappa']:
                 min_index = i
-        print('before', best_records, best_records[min_index], metric,
-              best_records[min_index]['kappa'], metric > best_records[min_index]['kappa'])
+        # print('before', best_records, best_records[min_index], metric,
+        #       best_records[min_index]['kappa'], metric > best_records[min_index]['kappa'])
         # check if currect acc is greater than min saved acc
         if metric > best_records[min_index]['kappa']:
             # if it is, delete previous files
@@ -76,7 +76,7 @@ def save_best_models(net, optimizer, output_path, best_records, epoch, metric, n
             # save current model
             torch.save(net.state_dict(), os.path.join(output_path, 'model_' + str(epoch) + '.pth'))
             # torch.save(optimizer.state_dict(), os.path.join(output_path, 'opt_' + str(epoch) + '.pth'))
-    print('after', best_records)
+    # print('after', best_records)
     np.save(os.path.join(output_path, 'best_records.npy'), best_records)
 
 
